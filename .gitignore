@@ -1,0 +1,58 @@
+# --- Dataset safety: participant-level data never goes to Git ---
+data/raw/*
+data/interim/*
+data/processed/*
+!data/raw/.gitkeep
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+
+# data/audit/ is tracked for small AGGREGATE summaries only (see data/audit/README.md).
+# Even there, sensitive/binary formats stay blocked by default (see repo-wide rules below).
+
+# --- Repo-wide: block participant-level data formats anywhere, not just under data/ ---
+# A tracked aggregate summary must be added deliberately (e.g. `git add -f`) after
+# manual review confirms it contains no participant-level rows. Nothing here is
+# "automatically safe" just because it is a small file.
+*.csv
+*.parquet
+*.feather
+*.pkl
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.zip
+*.7z
+*.tar
+*.tar.gz
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Temporary / editor / OS
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
