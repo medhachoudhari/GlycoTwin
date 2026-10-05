@@ -1,0 +1,34 @@
+{
+  "generated_at_utc": "2026-10-05T17:38:40.031520+00:00",
+  "total_files": 1,
+  "total_size_bytes": 0,
+  "extension_counts": {
+    "<none>": 1
+  },
+  "extension_sizes_bytes": {
+    "<none>": 0
+  },
+  "image_summary": {
+    "total_count": 0,
+    "total_size_bytes": 0,
+    "by_extension": {}
+  },
+  "subject_like_dir_count": 0,
+  "doc_candidates_public": [],
+  "tabular_profiles_public": [],
+  "observed_facts": [
+    "1 files found under the configured dataset root.",
+    "File extensions present: {'<none>': 1}.",
+    "0 top-level directories match a per-participant naming pattern (heuristic; not a confirmed participant count).",
+    "0 image files found ({}); none were opened or read."
+  ],
+  "open_questions": [
+    "What each column actually means (units, timezone, meal-timing convention) is unconfirmed until the dataset's own documentation/data dictionary is read.",
+    "The participant ID scheme and how files join across CGM, meal, and wearable records is unconfirmed.",
+    "Whether different file types share a common, consistent time base is unconfirmed (note: CGMacros timestamps are privacy-shifted; do not attempt to recover real dates).",
+    "Whether any 'timestamp-looking' column is actually a timestamp, and in what resolution/timezone, is unconfirmed without the data dictionary.",
+    "Whether missingness is random or structured (e.g. device gaps, non-wear periods) is unconfirmed from counts alone.",
+    "Any research target (e.g. a glucose-forecasting horizon or threshold) is undecided and must not be assumed before these questions are resolved."
+  ],
+  "warnings": []
+}
