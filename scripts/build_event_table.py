@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -27,23 +26,9 @@ from pathlib import Path
 import pandas as pd
 
 from glycotwin.config import REPO_ROOT, DatasetNotFoundError, get_dataset_root
+from glycotwin.data.discovery import discover_participant_files
 from glycotwin.data.events import build_event_table, event_count_report
 from glycotwin.data.meals import load_participant_data, participant_id_from_path
-
-
-def discover_participant_files(root: Path) -> list[Path]:
-    found = []
-    for dirpath, _d, files in os.walk(root):
-        for f in sorted(files):
-            if f.lower().endswith(".csv"):
-                p = Path(dirpath) / f
-                try:
-                    cols = {str(c).strip() for c in pd.read_csv(p, nrows=0).columns}
-                except Exception:  # noqa: BLE001
-                    continue
-                if {"Timestamp", "Meal Type"} <= cols:
-                    found.append(p)
-    return sorted(found)
 
 
 def schema_report(headers: dict[str, list[str]]) -> dict:

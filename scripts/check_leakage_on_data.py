@@ -19,11 +19,9 @@ import sys
 from collections import Counter
 
 from glycotwin.config import DatasetNotFoundError, get_dataset_root
+from glycotwin.data.discovery import discover_participant_files
 from glycotwin.data.leakage_check import check_feature_leakage
 from glycotwin.data.meals import load_participant_data, participant_id_from_path
-
-sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
-from build_event_table import discover_participant_files  # noqa: E402
 
 
 def main(argv=None) -> int:

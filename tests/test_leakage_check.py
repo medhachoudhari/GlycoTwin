@@ -11,7 +11,6 @@ import glycotwin.data.events as events
 from glycotwin.data.leakage_check import check_feature_leakage
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 _spec = importlib.util.spec_from_file_location("check_leakage_on_data", ROOT / "scripts" / "check_leakage_on_data.py")
 cli = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cli)
