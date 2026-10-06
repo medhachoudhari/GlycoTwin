@@ -11,7 +11,7 @@ This file is the single tracker; it is updated after every implementation phase.
 | Branch | `claude/glycotwin-initial-scaffold-gegpzd` |
 | Stable baseline (GitHub) | `b570d9a` (kept as an ancestor of everything below; tagged/bundled, see section 6) |
 | Local commits on top of it (**not pushed**) | `068536c` research core; `cd57f0f` renamed audit scripts; `88d18ef` dependency declarations; `d1803cd` inventory privacy fix and aggregate summary; `372e22d` event pipeline; `29b2d37` docs; `6a5fc2e` discovery refactor. Commits `372e22d` and `29b2d37` each had one failing test (the dependency-drift guard catching a fragile sibling import); `6a5fc2e` fixes it. |
-| Automated tests | **140 passed** at HEAD `6a5fc2e`, run from a clean `git archive` export (`python -m pytest -q`). One earlier unexplained failure is still open (E-03). |
+| Automated tests | **see section 8 for the latest count** (last clean-export run: 140 passed at `6a5fc2e`) (`python -m pytest -q`). One earlier unexplained failure is still open (E-03). |
 | Real CGMacros data in the engineering environment | **None.** Every real-data item below needs a run on your machine. |
 | Official PhysioNet / Nature pages | Not reachable from the engineering environment; the data dictionary text must come from you (H3). |
 
@@ -58,7 +58,7 @@ Legend for the last column: **AI** = I can complete it; **HUMAN** = needs you; *
 
 | ID | Requirement | Status | Evidence | Works today / remains | Depends on, assumptions | Next action | Acceptance criterion | Who |
 |---|---|---|---|---|---|---|---|---|
-| M-01 | Model A: population XGBoost | PARTIAL | `models/baseline.py`; tests | Fits/predicts, seeded, rejects single class. No participant CV, no glycaemic-group feature, no isotonic calibration | D-16 | add CV and calibration | participant-wise CV runs; isotonic fitted on training folds only | AI |
+| M-01 | Model A: population XGBoost | PARTIAL | `models/baseline.py`; `experiment.py` (`include_model_a`); `test_run_experiment_script.py` | Fits/predicts, seeded, rejects single class; now evaluated leave-one-participant-out inside the harness (raw probabilities). No glycaemic-group feature, no isotonic calibration, no 5-fold stratified CV | D-06, D-16 | add isotonic calibration (inner split) and group stratification | isotonic fitted on training folds only; folds stratified by group | AI after H4 |
 | M-02 | Model B: personalised carb sensitivity | PARTIAL | `models/bayesian.py`; `test_bayesian.py` | Hierarchical prior + closed-form update. **Deviation from blueprint:** includes an intercept | R14 | decide intercept after real residual diagnostics | documented decision with diagnostics | AI after data |
 | M-03 | Model C: activity interaction | PARTIAL | same | Interaction term with centred activity, recovered on synthetic data | R10 | same | same | AI after data |
 | M-04 | Closed-form update | VERIFIED | `test_bayesian.py` (17): manual formula, ridge/MAP equivalence, sequential = batch, PSD, forecast = Monte Carlo; 16 mutants all caught | Mathematically correct; known noise variance is an assumption | none | none | tests pass | AI |
@@ -67,9 +67,9 @@ Legend for the last column: **AI** = I can complete it; **HUMAN** = needs you; *
 | M-07 | Forecast with uncertainty (section 19) | PARTIAL | `bayesian.forecast_exceeds_180`, `twin/state.py` | Probability and 90% interval; data-quality flag is only partly wired | none | wire quality flags | interval widens with missing data in a test | AI |
 | M-08 | Calibration metrics, reliability diagrams | PARTIAL | `models/evaluation.py` | Brier, ECE, AUROC, AUPRC, bins, small-sample warnings. No plots, no per-group reports, no cold-start split | none | add plots and splits | reliability diagrams from a real run | AI |
 | M-09 | Active vs sedentary comparison | PARTIAL | `compare_models_on_activity_strata` | Works for a given threshold; the definition is undecided | R10 | decide from training data | definition recorded before results | AI after data |
-| M-10 | Simple baselines, participant-clustered CIs | NOT STARTED | none | needed so a win is not an artefact | D-10 | implement | CIs reported for every comparison | AI |
-| M-11 | Key experiment (A vs B vs C, prequential) | BLOCKED | none | needs eligible events and the rules above | D-14, R1, R9 | build the harness now; run once data exist | frozen plan; shuffled-history and permuted-activity controls | AI after H2 |
-| M-12 | Evaluation manifest and seeds | NOT STARTED | none | | M-11 | implement | one command reproduces the table | AI |
+| M-10 | Simple baselines, participant-clustered CIs | IMPLEMENTED | `models/experiment.py` (`personal_rate`, `population_constant`, `paired_cluster_bootstrap`); `tests/test_experiment.py` (15), 12 injected bugs all caught | Baselines and a paired bootstrap that resamples PARTICIPANTS; an interval containing 0 is reported as inconclusive. Synthetic only. Note: the running-mean baseline is noisy, so beating it is a weak test; the shuffled-history control is the stronger one | none | none until real events exist | CIs reported for every comparison in the run report | AI |
+| M-11 | Key experiment (A vs B vs C, prequential) | PARTIAL: harness IMPLEMENTED; the run is BLOCKED | `models/experiment.py`, `scripts/run_experiment.py`; `test_experiment.py`, `test_run_experiment_script.py` (4) | Forecast-then-learn per held-out participant; updates only after the outcome window closes; priors, baselines and the active/sedentary cut from other participants only; frozen, shuffled-history and permuted-activity controls; refuses underpowered data (placeholder minimums need your confirmation). On synthetic simulations it detects an effect when one exists and stays inconclusive when none does. No real run | D-14, R1, R9 | run once data and rules exist; confirm the minimums before looking at results | frozen plan; run report with every pre-listed comparison and its interval | AI after H2; HUMAN confirms minimums (H8) |
+| M-12 | Evaluation manifest and seeds | IMPLEMENTED | `experiment.build_manifest`; tested for determinism and data-change detection | Seeds, parameters, package versions, counts and a hash of the event table (no participant values) are recorded with every run | none | none | one command reproduces the report from the same table | AI |
 
 ### 3.3 Digital twin lifecycle (sections 4, 11, 16)
 
@@ -117,7 +117,7 @@ Legend for the last column: **AI** = I can complete it; **HUMAN** = needs you; *
 ## 5. Next actions in dependency order
 
 1. **You:** run the one-command evidence set (H2) and send the aggregate outputs.
-2. **AI, now:** the prequential harness skeleton (M-11), trivial baselines and cluster-bootstrap CIs (M-10), the event-table-to-twin adapter (T-06). None needs real data to write.
+2. **AI, now (no real data needed):** the event-table-to-twin adapter (T-06); isotonic calibration and the reliability-diagram generator (M-01, M-08); then Phase 4 groundwork that does not depend on results. The prequential harness, baselines and bootstrap (M-10, M-11, M-12) are done.
 3. **AI after H2:** close R3, R5-R7, R9-R11 with the evidence; fix defects it exposes.
 4. **AI after H4:** ingest `bio.csv`, stratified prior and folds (D-06, M-05, D-16).
 5. **AI:** Phase 3 experiment run once D-14 shows enough events; freeze it.
@@ -142,3 +142,11 @@ Only items that automation cannot do. Batched so you can answer once.
 | **H5** | Publishing is irreversible and the engineering workspace is ephemeral. | Reply "push" to publish the reconciled branch (fast-forward from `b570d9a`) and a `backup/local-only-research-core-1f53759` branch; or "hold". I have pushed nothing. |
 | **H6** | Deleting tracked files is consequential. | Reply "replace legacy audit files" to remove `data/audit/dataset_inventory_summary.{json,md}` (still in Git history), or "keep". |
 | **H7** | A licence is a legal choice; the final review is yours. | Pick a licence for the project code (note the dataset's CC BY-NC-SA 4.0 terms) and, at the end, review the demo and results before submission. |
+| **H8** | The experiment's minimum sample sizes are a scientific choice made before seeing results; the code ships placeholders (20 participants, median 8 events each, 30 positives, 30 negatives). | Confirm or change those four numbers (or say "keep placeholders") before the first real run. |
+
+## 8. Latest verification log
+
+| When | Command / evidence | Result |
+|---|---|---|
+| after `6a5fc2e` | clean `git archive` export, `python -m pytest -q` | 140 passed |
+| Phase 3a (experiment harness) | see the commit below | recorded at commit time |

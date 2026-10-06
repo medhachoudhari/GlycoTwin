@@ -37,10 +37,11 @@ src/glycotwin/data/meals.py      loading and meal extraction (gaps, overlaps, ex
 src/glycotwin/data/events.py     features, outcomes, eligibility, event table, count reports
 src/glycotwin/data/leakage_check.py  the blueprint's leakage test over real pipeline code
 src/glycotwin/features.py        event schema validation, leakage-safe chronological split
-src/glycotwin/models/            baseline.py (A), bayesian.py (B/C), evaluation.py
+src/glycotwin/models/            baseline.py (A), bayesian.py (B/C), evaluation.py, experiment.py (harness)
 src/glycotwin/twin/state.py      versioned TwinState, forecast/reconcile
 scripts/build_event_table.py     one command: event counts, exclusions, schema groups (aggregate output)
 scripts/check_leakage_on_data.py the leakage unit test on real participant files
+scripts/run_experiment.py        prequential A/B/C experiment with controls, clustered CIs, manifest
 scripts/audit_cgm_sampling_phase.py   second-difference test of CGM sampling structure
 scripts/audit_meal_event_semantics.py meal-row semantics probes
 scripts/audit_dataset.py, audit_meal_events.py, audit_cgm_interpolation.py   earlier audits (kept)
@@ -69,6 +70,7 @@ $env:GLYCOTWIN_DATA_ROOT = "C:\path\to\CGMacros"
 python scripts\build_event_table.py          # counts, exclusions, schema groups; table goes to data\processed (ignored)
 python scripts\check_leakage_on_data.py      # blueprint leakage test, one meal per participant
 python scripts\audit_cgm_sampling_phase.py   # can sampling structure be inferred? (pilot: 5 participants)
+python scripts\run_experiment.py            # A vs B vs C + controls; refuses to run on underpowered data
 ```
 All printed output is aggregate-only (counts, reason names, column names, anonymous labels). Skim it
 before sharing it. The participant-level event table stays local.
