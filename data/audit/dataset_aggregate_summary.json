@@ -1,0 +1,50 @@
+{
+  "extension_counts": {
+    ".csv": 48,
+    ".jpg": 3454
+  },
+  "image_files": 3454,
+  "other_tables": {
+    "bio.csv": {
+      "columns": 24,
+      "rows": 45
+    },
+    "gut_health_test.csv": {
+      "columns": 23,
+      "rows": 47
+    },
+    "microbes.csv": {
+      "columns": 1980,
+      "rows": 45
+    }
+  },
+  "participant_files": {
+    "column_count_distribution": {
+      "13": 2,
+      "14": 32,
+      "15": 11
+    },
+    "files_with_fewer_than_14400_rows": 7,
+    "n_files": 45,
+    "note": "structural diagnostics only; their cause is not established",
+    "row_counts_divisible_by_15": 44,
+    "row_counts_divisible_by_5": 45,
+    "rows_max": 18735,
+    "rows_median": 14805,
+    "rows_min": 5655,
+    "total_rows": 687580
+  },
+  "participant_like_directories": 45,
+  "provenance": {
+    "derived_from": "data/audit/dataset_inventory_summary.md",
+    "method": "scripts/derive_aggregate_summary.py (reads the committed markdown only, never raw data)",
+    "privacy": "no participant file names and no per-file entries",
+    "source_sha256": "2d989e2b745bdfb8af3be4424e669ec155d5f6fdde17ade57a0eba085a19ed7a"
+  },
+  "total_files": 3502,
+  "unresolved": [
+    "Which columns differ between participant files (only the column COUNTS are recorded here).",
+    "Why every participant row count is divisible by 5 and nearly all by 15 (structural fact; cause not established).",
+    "Meal-row meaning, native versus interpolated CGM readings: see docs/data_validity_rules.md."
+  ]
+}

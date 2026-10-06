@@ -144,5 +144,7 @@ def test_run_audit_caps_tabular_profiling_and_warns(tmp_path):
         local_output_dir=tmp_path.parent / "out_local5",
         max_tabular_files=1,
     )
-    assert len(result.tabular_profiles_public) == 1
+    # participant-pattern files are summarised in aggregate, never listed one by one in the public output
+    assert result.tabular_profiles_public == []
+    assert result.participant_file_summary["n_files"] == 1
     assert any("profiled only the first" in w for w in result.warnings)

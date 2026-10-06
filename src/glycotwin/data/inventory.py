@@ -47,6 +47,10 @@ SUBJECT_DIR_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# File stems that identify a participant (e.g. a per-participant CSV). Used to redact FILE names,
+# not only folder names: a redacted folder with an identifying file name still exposes the id.
+PARTICIPANT_FILE_PATTERN = re.compile(r"^(?:cgmacros|subject|participant|p|s)[-_]?\d+$", re.IGNORECASE)
+
 SKIP_DIR_NAMES = {".git", "__pycache__", ".ipynb_checkpoints", ".DS_Store"}
 
 
@@ -96,6 +100,7 @@ class AuditResult:
     observed_facts: list[str]
     open_questions: list[str]
     warnings: list[str] = field(default_factory=list)
+    participant_file_summary: dict = field(default_factory=dict)
 
 
 # --- Scanning --------------------------------------------------------------------
@@ -130,14 +135,55 @@ def _is_doc_candidate(rel_path: Path) -> bool:
     return rel_path.suffix.lower() in DOC_EXTENSIONS or bool(DOC_NAME_HINTS.search(rel_path.name))
 
 
+def _path_parts(rel_path: str | Path) -> list[str]:
+    """Split on BOTH separators: a report produced on Windows must redact the same way on any OS."""
+    return [p for p in str(rel_path).replace("\\", "/").split("/") if p]
+
+
 def _is_inside_subject_dir(rel_path: Path, subject_dirs: set[str]) -> bool:
-    return len(rel_path.parts) > 1 and rel_path.parts[0] in subject_dirs
+    parts = _path_parts(rel_path)
+    return len(parts) > 1 and parts[0] in subject_dirs
+
+
+def is_participant_file(rel_path: str | Path, subject_dirs: set[str]) -> bool:
+    """True if the path sits in a participant-like folder or its file stem looks like a participant id."""
+    parts = _path_parts(rel_path)
+    if not parts:
+        return False
+    return (len(parts) > 1 and parts[0] in subject_dirs) or bool(PARTICIPANT_FILE_PATTERN.match(Path(parts[-1]).stem))
 
 
 def _redact_subject_ids(rel_path: str, subject_dirs: set[str]) -> str:
-    parts = Path(rel_path).parts
-    redacted = ["<participant_id>" if p in subject_dirs else p for p in parts]
-    return str(Path(*redacted))
+    """Replace participant-like folder names AND participant-numbered file names; always joins with '/'."""
+    parts = _path_parts(rel_path)
+    out = []
+    for i, part in enumerate(parts):
+        if part in subject_dirs:
+            out.append("<participant_id>")
+        elif i == len(parts) - 1 and PARTICIPANT_FILE_PATTERN.match(Path(part).stem):
+            out.append("<participant_file>" + Path(part).suffix)
+        else:
+            out.append(part)
+    return "/".join(out)
+
+
+def summarize_participant_files(shapes: list[tuple[int | None, int | None]]) -> dict:
+    """Aggregate (rows, columns) of participant-pattern files WITHOUT keeping per-file entries: a
+    per-file list in scan order would let a reader map position back to participant id."""
+    rows = sorted(r for r, _ in shapes if r is not None)
+    cols = [c for _, c in shapes if c is not None]
+    if not rows:
+        return {"n_files": len(shapes)}
+    q = lambda p: int(rows[min(len(rows) - 1, int(p * (len(rows) - 1) + 0.5))])  # noqa: E731
+    return {
+        "n_files": len(shapes), "total_rows": int(sum(rows)),
+        "rows_min": rows[0], "rows_median": q(0.5), "rows_max": rows[-1],
+        "files_with_fewer_than_14400_rows": int(sum(r < 14400 for r in rows)),
+        "row_counts_divisible_by_5": int(sum(r % 5 == 0 for r in rows)),
+        "row_counts_divisible_by_15": int(sum(r % 15 == 0 for r in rows)),
+        "column_count_distribution": {int(k): int(v) for k, v in sorted(Counter(cols).items())},
+        "note": "structural diagnostics only; their cause is not established",
+    }
 
 
 # --- Tabular schema / missingness profiling --------------------------------------
@@ -273,7 +319,9 @@ def _build_observed_facts(
         f"{image_summary['total_count']} image files found "
         f"({image_summary['by_extension']}); none were opened or read.",
     ]
-    for p in tabular_profiles:
+    participant_profiles = [p for p in tabular_profiles if is_participant_file(p.relative_path, redact_dirs)]
+    other_profiles = [p for p in tabular_profiles if not is_participant_file(p.relative_path, redact_dirs)]
+    for p in other_profiles:
         display_path = _redact_subject_ids(p.relative_path, redact_dirs)
         if p.read_error:
             facts.append(f"Could not fully profile '{display_path}': {p.read_error}.")
@@ -283,6 +331,15 @@ def _build_observed_facts(
             f"'{display_path}' ({p.format}): {p.row_count} rows, {len(p.columns)} columns"
             + (f", candidate timestamp column(s): {ts_cols}" if ts_cols else "")
             + "."
+        )
+    if participant_profiles:
+        agg = summarize_participant_files([(p.row_count, len(p.columns) if p.columns else None) for p in participant_profiles])
+        facts.append(
+            f"{agg['n_files']} participant-pattern CSV files (individual files not listed): "
+            f"rows min/median/max = {agg.get('rows_min')}/{agg.get('rows_median')}/{agg.get('rows_max')}, "
+            f"total {agg.get('total_rows')}; column counts {agg.get('column_count_distribution')}; "
+            f"row counts divisible by 5: {agg.get('row_counts_divisible_by_5')}/{agg['n_files']}, "
+            f"by 15: {agg.get('row_counts_divisible_by_15')}/{agg['n_files']} (structural, cause not established)."
         )
     return facts
 
@@ -373,10 +430,16 @@ def run_audit(
         image_summary=image_summary,
         subject_like_dir_count=len(subject_dirs),
         doc_candidates_public=sorted(doc_public),
-        tabular_profiles_public=[_tabular_profile_to_public_dict(p, subject_dirs) for p in tabular_profiles],
+        tabular_profiles_public=[_tabular_profile_to_public_dict(p, subject_dirs) for p in tabular_profiles
+                                 if not is_participant_file(p.relative_path, subject_dirs)],
         observed_facts=observed_facts,
         open_questions=open_questions,
         warnings=warnings,
+        participant_file_summary={
+            "path_pattern": "<participant_id>/<participant_file>",
+            **summarize_participant_files([(p.row_count, len(p.columns) if p.columns else None) for p in tabular_profiles
+                                           if is_participant_file(p.relative_path, subject_dirs)]),
+        },
     )
 
     _write_public_report(result, output_dir)
