@@ -10,8 +10,8 @@ This file is the single tracker; it is updated after every implementation phase.
 |---|---|
 | Branch | `claude/glycotwin-initial-scaffold-gegpzd` |
 | Stable baseline (GitHub) | `b570d9a` (kept as an ancestor of everything below; tagged/bundled, see section 6) |
-| Local commits on top of it (**not pushed**) | `068536c` research core; `cd57f0f` renamed audit scripts; `88d18ef` dependency declarations; `d1803cd` inventory privacy fix and aggregate summary; `372e22d` event pipeline; `29b2d37` docs; `6a5fc2e` discovery refactor. Commits `372e22d` and `29b2d37` each had one failing test (the dependency-drift guard catching a fragile sibling import); `6a5fc2e` fixes it. |
-| Automated tests | **see section 8 for the latest count** (last clean-export run: 140 passed at `6a5fc2e`) (`python -m pytest -q`). One earlier unexplained failure is still open (E-03). |
+| Local commits on top of it (**not pushed**) | `068536c` research core; `cd57f0f` renamed audit scripts; `88d18ef` dependency declarations; `d1803cd` inventory privacy fix and aggregate summary; `372e22d` event pipeline; `29b2d37` docs; `6a5fc2e` discovery refactor; `bd12e40` tracker update; `4bacde3` experiment harness. Commits `372e22d` and `29b2d37` each had one failing test (the dependency-drift guard catching a fragile sibling import); `6a5fc2e` fixes it. |
+| Automated tests | **159 passed** at `4bacde3` (clean `git archive` export; see section 8) (`python -m pytest -q`). One earlier unexplained failure is still open (E-03). |
 | Real CGMacros data in the engineering environment | **None.** Every real-data item below needs a run on your machine. |
 | Official PhysioNet / Nature pages | Not reachable from the engineering environment; the data dictionary text must come from you (H3). |
 
@@ -149,4 +149,6 @@ Only items that automation cannot do. Batched so you can answer once.
 | When | Command / evidence | Result |
 |---|---|---|
 | after `6a5fc2e` | clean `git archive` export, `python -m pytest -q` | 140 passed |
-| Phase 3a (experiment harness) | see the commit below | recorded at commit time |
+| at `4bacde3` (experiment harness) | clean `git archive` export, `python -m pytest -q` | 159 passed |
+| mutation checks | injected bugs, one at a time, into scratch copies | Bayesian/twin core 16/16 caught; sampling-phase audit 15/15; meals+events 15/15; experiment harness 12/12 (each after adding tests for the first survivor) |
+| flake hunt | 30 background full runs with random hash seeds + earlier 22 | 51 clean runs; 1 failure explained (my mid-edit state). The pre-phase one-off failure remains unexplained (E-03) |
