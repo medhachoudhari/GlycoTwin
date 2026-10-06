@@ -4,6 +4,80 @@ Research proof of concept. **Not a diagnostic or treatment tool**; it gives no m
 insulin, medication or diet recommendations. Specification: `GlycoTwin-Master-Blueprint.pdf` (38 pages).
 This file is the single tracker; it is updated after every implementation phase.
 
+## 0. Gate checkpoint (GREEN / YELLOW / RED)
+
+A gate is **GREEN only when every stated acceptance criterion has actually been met** with the evidence it names.
+**YELLOW**: some criteria are met with evidence; the rest are not yet met. **RED**: a required criterion has no evidence and
+cannot be met until real-data results or a human input exist. Synthetic tests never turn a data or research gate green.
+
+| Gate | Signal | One-line reason |
+|---|---|---|
+| 1. Repository and engineering | **YELLOW** | Clean-export tests pass in a fresh venv and docs are consistent; but nothing is published (backups are local/ephemeral) and one unexplained test failure is still open. |
+| 2. Data validity | **RED** | No evidence script has been run on the real dataset; the tooling is ready and tested, but it only exists in this session. |
+| 3. Research validity | **RED** | No real run of Models A/B/C or the controls; sample-size minimums unconfirmed; design verified on simulations only. |
+| 4. Innovative features | **YELLOW** | Math, lifecycle and uncertainty verified on synthetic data; replay and persistent history not built; nothing demonstrated on real data. |
+| 5. Product readiness | **RED** | No persistence, API, replay, or dashboard (deliberately not started; they sit behind Gates 2-3). |
+
+### Gate 1: repository and engineering: YELLOW
+
+| Acceptance criterion | Met? | Evidence (command / file) |
+|---|---|---|
+| Correct repository state | Partly | Branch `claude/glycotwin-initial-scaffold-gegpzd`, clean tree, `b570d9a` is an ancestor of HEAD, `git fsck` clean, no data/secret files tracked (`git ls-files`, `.gitignore` checked). **Not published: 12 commits are local only; GitHub is still at `b570d9a`.** |
+| Backups preserved | Partly | Verified: `refs.bundle` (contains `1f53759` and `b570d9a`), folder copy matches all 17 manifest hashes, local branch `backup/local-only-research-core-1f53759` (`11dbae6`), local tag `baseline-b570d9a`. **The bundle and folder copy live in the session scratch area (ephemeral) and the branch is local: not durable until pushed (H5).** |
+| Tests pass from a clean checkout/export | Yes | `git archive HEAD` into a new virtualenv, `pip install -r requirements.txt && pip install -e .` exactly as the README says, `python -m pytest -q`: **159 passed** at `7aed9f6` (before the latest commits). Final run at HEAD: **173 passed** at `69dc56f` (fresh virtualenv, `git archive` export, 1 run). |
+| Dependencies and docs consistent | Yes | `tests/test_project_config.py` (every import declared in `pyproject.toml` and `requirements.txt`); a path check found no README/docs reference to a missing file. |
+| Test suite reliable | **No** | One failure in one full run before the integration was never captured. A repeat hunt (random order seeds, 159-test export at `7aed9f6`) had 0 failures in the first 27 of 40 planned runs when this was written; that lowers but does not remove the doubt. Cause unidentified (E-03). |
+
+Blockers: publication (H5); the unexplained failure. **Next acceptance criterion for GREEN:** the push is verified (`git rev-parse origin/<branch>` equals HEAD,
+backup branch on the remote) **and** either the failure is reproduced and fixed or at least 100 consecutive clean runs from a clean export are logged.
+
+### Gate 2: data validity: RED
+
+| Acceptance criterion | Met? | Evidence |
+|---|---|---|
+| Evidence scripts run on the real dataset | **No** | None has been run. The real dataset exists only on your machine. |
+| Meal semantics verified (start vs later point; meal-end field) | **No** | R1/R2 open. Probe `scripts/audit_meal_event_semantics.py`: 10 tests, 9 injected bugs caught; it separates the two patterns on synthetic files. Real answer unknown. |
+| CGM sampling limitations verified | **No** | R3 open. `scripts/audit_cgm_sampling_phase.py`: 31 tests, 15 bugs caught, ~1 s per channel on a 15,000-row series (about 2 minutes for all 45 files). Pushed `audit_cgm_interpolation.py` prints fixed conclusions and is not evidence. |
+| Missingness, gap and overlap exclusions, eligible counts, outcome labels | **No** | `scripts/build_event_table.py` (4 tests) will report them; not run. |
+| Facts that ARE verified from real data | Limited | Only the committed inventory aggregate: 45 files, 687,580 rows, column counts 13/14/15 (2/32/11), every row count divisible by 5 and 44 of 45 by 15. Structural facts, causes not established. |
+
+Blockers: the scripts are not on your machine (unpushed); you must run them (H2) and supply the dictionary rows (H3) and `bio.csv` names (H4).
+**Next acceptance criterion for GREEN:** aggregate JSON from `build_event_table.py`, `check_leakage_on_data.py`, `audit_cgm_sampling_phase.py` and
+`audit_meal_event_semantics.py` is committed under `data/audit/` and rules R1-R14 each cite it or are explicitly decided by you.
+
+### Gate 3: research validity: RED
+
+| Acceptance criterion | Met? | Evidence |
+|---|---|---|
+| Feature timing and leakage safeguards verified | Synthetic only | `tests/test_events.py` (13), `tests/test_leakage_check.py` (5): mutation test passes through the real pipeline and fails when a pipeline leaks. The real-data run (`check_leakage_on_data.py`) has not happened. |
+| Participant-level and chronological evaluation confirmed | Code only | Leave-one-participant-out prequential harness; updates only after the window closes; priors, baselines and the active cut from other participants only (`tests/test_experiment.py`, 15 tests, 12 bugs caught). |
+| Experiment design and minimum sample sizes verified | **No** | Placeholders unconfirmed (H8). The simulation in `docs/INNOVATION_ROADMAP.md` section 6 shows the placeholders (20 participants, median 8 events) are too small even for a strong activity effect (power 0.38) and that a modest effect is undetectable. |
+| Models A, B, C and controls run on eligible real data | **No** | Not run; `scripts/run_experiment.py` will refuse underpowered data. |
+| Metrics, intervals, calibration, limitations, verdict on the innovation | **No** | None exist. **The evidence neither supports nor contradicts the innovation.** |
+
+Blockers: Gate 2; H1 and H8. **Next acceptance criterion for GREEN:** the frozen plan (H1, H8, decision rules) is committed, then one real run of
+`run_experiment.py` produces a report with every pre-listed comparison, intervals and sample sizes, plus the sensitivity variants.
+
+### Gate 4: innovative features: YELLOW
+
+| Acceptance criterion | Met? | Evidence |
+|---|---|---|
+| Activity-conditioned Bayesian personalisation verified | Math: yes. Real data: no | `tests/test_bayesian.py` (17): matches the closed-form and ridge/MAP solutions, sequential = batch, PSD, Monte-Carlo agreement; 16 bugs caught. Model C recovers a simulated interaction. |
+| Forecast, observe, update lifecycle verified | In memory | `tests/test_twin_state.py` (7): version chain, idempotent reconcile, window and consistency guards, order independence. Not connected to the event table (T-06). |
+| Uncertainty calculations verified | Synthetic | Probability equals the Monte-Carlo frequency; 90% interval has 90% coverage; calibrated under correct specification. |
+| Replay and state history verified | **No** | History exists in memory only; **replay not built**; no persistence. |
+| Implemented vs demonstrated on real data | Distinguished | See `docs/INNOVATION_ROADMAP.md` section 4: every row "Demonstrated on real data: No". |
+
+Blockers: demonstration waits on Gates 2-3. **Next acceptance criterion for GREEN:** a real eligible participant's forecast, reconcile and update chain
+is stored with parent links and replayed end to end, with the result reported whatever it is.
+
+### Gate 5: product readiness: RED
+
+No persistence, API, replay UI or dashboard exists (`git ls-files` shows no FastAPI, SQLAlchemy or frontend files). Reproducibility infrastructure is partly
+in place (manifest, seeds, deterministic scripts, dependency test). I have deliberately **not** built the blocked features to raise a completion figure.
+**Next acceptance criterion for GREEN:** SQLite twin versions survive a restart, every blueprint endpoint returns its specified shape with validated input,
+a recorded day replays from real eligible data, and every MUST HAVE screen works against the real backend, all with passing tests.
+
 ## 1. Current checkpoint
 
 | Item | Value |
@@ -46,7 +120,7 @@ Legend for the last column: **AI** = I can complete it; **HUMAN** = needs you; *
 | D-08 | 3/7: native-timestamp CGM pipeline | BLOCKED | none | The blueprint assumes native-interval files. The README lists only the interpolated per-minute file; no native source found. Lag-guarded baseline/trend implemented as the fallback | R3, H3 | confirm whether any native export exists | either a native source is identified or the lag-guard fallback is accepted in writing | HUMAN (H3) |
 | D-09 | 7 risk 1: interpolation evidence | PARTIAL | pushed `audit_cgm_interpolation.py` (hard-coded conclusions, no pytest); mine `audit_cgm_sampling_phase.py` (31 tests, mutation-checked, synthetic only) | No real-data result is committed for either | R3 | run the pilot (5) then all 45 | aggregate JSON committed; verdict recorded in R3 | HUMAN (H2) |
 | D-10 | 8: meal-event construction, exclusions | IMPLEMENTED | `data/meals.py::extract_meal_events_detailed`; `test_meals.py` (6), `test_meals_detailed.py` (14); 15 mutants all caught | Leading/internal/trailing gaps, past-only baseline, overlap flags, exclusion log that reconciles. Confirmed defects fixed | R1, R6, R11 | real-data run | exclusion reasons reconcile on all 45 files | AI after H2 |
-| D-11 | 8: meal start / end semantics | NEEDS HUMAN ACTION | `docs/data_validity_rules.md` section B | Window anchored at the logged row (D1); inconsistency in the blueprint resolved explicitly, awaiting your confirmation | R1, R2 | confirm D1; supply dictionary rows | decision recorded with evidence | HUMAN (H1, H3) |
+| D-11 | 8: meal start / end semantics | NEEDS HUMAN ACTION | `docs/data_validity_rules.md` section B; probe `scripts/audit_meal_event_semantics.py` now has `tests/test_audit_meal_event_semantics.py` (10; 9 injected bugs caught): separates a rise-after-row from a rise-before-row pattern on synthetic files; real-data answer unknown | Window anchored at the logged row (D1); inconsistency in the blueprint resolved explicitly, awaiting your confirmation | R1, R2 | confirm D1; supply dictionary rows | decision recorded with evidence | HUMAN (H1, H3) |
 | D-12 | 6: feature table | PARTIAL | `data/events.py::build_event_table`, `FEATURE_COLUMNS` | Done: macros, baseline, 30-min trend, 4 h METs, time since last meal. Missing: HR deviation, glycaemic group | D-06, D-07 | add after H4 | all blueprint features present or explicitly dropped | AI after H4 |
 | D-13 | 8: target (peak, rise, label >= 180) | IMPLEMENTED | `events.compute_outcome`; `test_events.py` | Excludes the reading at t0; label inclusive; 140 mg/dL secondary label not added | R9 | add secondary label after counts exist | boundary and t0 tests pass | AI |
 | D-14 | 6 checkpoint: event counts | IMPLEMENTED | `events.event_count_report`, `scripts/build_event_table.py`; `test_build_event_table_script.py` (4) | Anonymised counts, exclusion reasons, per-class counts; groups need `bio.csv` | R9, R5 | run on your machine | counts per class and exclusion reason committed | HUMAN (H2) |
@@ -69,6 +143,7 @@ Legend for the last column: **AI** = I can complete it; **HUMAN** = needs you; *
 | M-09 | Active vs sedentary comparison | PARTIAL | `compare_models_on_activity_strata` | Works for a given threshold; the definition is undecided | R10 | decide from training data | definition recorded before results | AI after data |
 | M-10 | Simple baselines, participant-clustered CIs | IMPLEMENTED | `models/experiment.py` (`personal_rate`, `population_constant`, `paired_cluster_bootstrap`); `tests/test_experiment.py` (15), 12 injected bugs all caught | Baselines and a paired bootstrap that resamples PARTICIPANTS; an interval containing 0 is reported as inconclusive. Synthetic only. Note: the running-mean baseline is noisy, so beating it is a weak test; the shuffled-history control is the stronger one | none | none until real events exist | CIs reported for every comparison in the run report | AI |
 | M-11 | Key experiment (A vs B vs C, prequential) | PARTIAL: harness IMPLEMENTED; the run is BLOCKED | `models/experiment.py`, `scripts/run_experiment.py`; `test_experiment.py`, `test_run_experiment_script.py` (4) | Forecast-then-learn per held-out participant; updates only after the outcome window closes; priors, baselines and the active/sedentary cut from other participants only; frozen, shuffled-history and permuted-activity controls; refuses underpowered data (placeholder minimums need your confirmation). On synthetic simulations it detects an effect when one exists and stays inconclusive when none does. No real run | D-14, R1, R9 | run once data and rules exist; confirm the minimums before looking at results | frozen plan; run report with every pre-listed comparison and its interval | AI after H2; HUMAN confirms minimums (H8) |
+| M-13 | Power simulation for the minimum sample sizes (H8) | IMPLEMENTED | `scripts/simulate_power.py`, `models/simulation.py`; `test_simulate_power.py` (3) | SIMULATION under assumed heterogeneity and effect sizes; estimates false-positive rate and power of the harness; results in `docs/INNOVATION_ROADMAP.md` section 6; says nothing about CGMacros | none | rerun with real per-participant event counts | numbers are labelled assumed | AI |
 | M-12 | Evaluation manifest and seeds | IMPLEMENTED | `experiment.build_manifest`; tested for determinism and data-change detection | Seeds, parameters, package versions, counts and a hash of the event table (no participant values) are recorded with every run | none | none | one command reproduces the report from the same table | AI |
 
 ### 3.3 Digital twin lifecycle (sections 4, 11, 16)
