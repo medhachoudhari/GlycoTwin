@@ -2,7 +2,10 @@
 
 A personalized metabolic **Digital Twin** research prototype for the Digital Twin Challenge 2026.
 
-> **Status: foundation + dataset-inventory tool only.** Nothing described under "Planned" is
+> **Status: foundation, dataset-inventory tool, and the research/twin core (Models A/B/C,
+> Bayesian update, versioned in-memory TwinState) — all tested on synthetic fixtures only.
+> No real CGMacros data has been processed; no experiment results exist yet. Backend, SQLite
+> persistence, and dashboard are not implemented.** Nothing described under "Planned" is
 > implemented or validated. No glucose forecasting, personalization, backend, or dashboard
 > exists yet. This is a research prototype, not a diagnostic system — it must not be used
 > to give medical advice, treatment recommendations, or medication/insulin guidance.
@@ -30,6 +33,10 @@ tests/                         config + inventory tests (synthetic fixtures only
 data/raw|interim|processed     local only, git-ignored
 data/interim/audit_local/      full local inventory report (real paths); git-ignored
 data/audit/                    aggregate, redacted inventory summary (tracked)
+src/glycotwin/features.py      internal MealEvent schema + leakage-safe chronological split
+src/glycotwin/models/          baseline.py (Model A XGBoost), bayesian.py (Models B/C), evaluation.py
+src/glycotwin/twin/state.py    versioned TwinState, forecast/reconcile, in-memory TwinStore
+docs/modelling_assumptions.md  what is verified on synthetic data vs. still unverified
 notebooks/ reports/ docs/      placeholders (.gitkeep)
 ```
 `twin/` and `models/` subpackages will be added when they have content.
