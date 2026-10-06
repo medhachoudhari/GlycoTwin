@@ -10,8 +10,8 @@ This file is the single tracker; it is updated after every implementation phase.
 |---|---|
 | Branch | `claude/glycotwin-initial-scaffold-gegpzd` |
 | Stable baseline (GitHub) | `b570d9a` (kept as an ancestor of everything below; tagged/bundled, see section 6) |
-| Local commits on top of it (not pushed) | `068536c` research core, `cd57f0f` renamed audit scripts, plus the Phase 1 commits listed in section 2 |
-| Automated tests | **133 passed** in one full run at the time of writing (`python -m pytest -q`). One earlier unexplained failure is still open (E-03). |
+| Local commits on top of it (**not pushed**) | `068536c` research core; `cd57f0f` renamed audit scripts; `88d18ef` dependency declarations; `d1803cd` inventory privacy fix and aggregate summary; `372e22d` event pipeline; `29b2d37` docs; `6a5fc2e` discovery refactor. Commits `372e22d` and `29b2d37` each had one failing test (the dependency-drift guard catching a fragile sibling import); `6a5fc2e` fixes it. |
+| Automated tests | **140 passed** at HEAD `6a5fc2e`, run from a clean `git archive` export (`python -m pytest -q`). One earlier unexplained failure is still open (E-03). |
 | Real CGMacros data in the engineering environment | **None.** Every real-data item below needs a run on your machine. |
 | Official PhysioNet / Nature pages | Not reachable from the engineering environment; the data dictionary text must come from you (H3). |
 
@@ -50,7 +50,7 @@ Legend for the last column: **AI** = I can complete it; **HUMAN** = needs you; *
 | D-12 | 6: feature table | PARTIAL | `data/events.py::build_event_table`, `FEATURE_COLUMNS` | Done: macros, baseline, 30-min trend, 4 h METs, time since last meal. Missing: HR deviation, glycaemic group | D-06, D-07 | add after H4 | all blueprint features present or explicitly dropped | AI after H4 |
 | D-13 | 8: target (peak, rise, label >= 180) | IMPLEMENTED | `events.compute_outcome`; `test_events.py` | Excludes the reading at t0; label inclusive; 140 mg/dL secondary label not added | R9 | add secondary label after counts exist | boundary and t0 tests pass | AI |
 | D-14 | 6 checkpoint: event counts | IMPLEMENTED | `events.event_count_report`, `scripts/build_event_table.py`; `test_build_event_table_script.py` (4) | Anonymised counts, exclusion reasons, per-class counts; groups need `bio.csv` | R9, R5 | run on your machine | counts per class and exclusion reason committed | HUMAN (H2) |
-| D-15 | 7: leakage unit test | IMPLEMENTED | `test_events.py` (13): mutation test through the real pipeline, plus a stronger lag-guard variant and a non-vacuity test | Passes on synthetic frames. The blueprint requires it on real participants (>= 5) before training | real data | write `scripts/check_leakage_on_data.py`, run it | passes for >= 1 meal per participant on real files | AI writes, HUMAN runs |
+| D-15 | 7: leakage unit test | IMPLEMENTED | `test_events.py` (13), `test_leakage_check.py` (5): mutation test through the real pipeline, a stronger lag-guard variant, a non-vacuity test, and proof the check fails when a pipeline leaks; `scripts/check_leakage_on_data.py` runs it on real files | Passes on synthetic frames. The blueprint requires it on real participants (>= 5) before training | real data | run `scripts\check_leakage_on_data.py` (written) | passes for >= 1 meal per participant on real files | HUMAN (H2) |
 | D-16 | 7/9: participant-level split for Model A (5-fold, stratified) | NOT STARTED | none | needs the group label | D-06 | build seeded fold manifest | disjoint participants per fold, seeded and reproducible | AI after H4 |
 | D-17 | 7/9: chronological split for B/C | IMPLEMENTED | `features.chronological_participant_split`, `assert_no_temporal_leakage`; `test_leakage_and_eval.py` | Per-participant, purges overlapping outcome windows. Blueprint says first half trains: parameter | none | add the prequential harness (M-11) | no train window reaches the first test meal | AI |
 
@@ -117,7 +117,7 @@ Legend for the last column: **AI** = I can complete it; **HUMAN** = needs you; *
 ## 5. Next actions in dependency order
 
 1. **You:** run the one-command evidence set (H2) and send the aggregate outputs.
-2. **AI, now:** `scripts/check_leakage_on_data.py` (blueprint test on real files), the prequential harness skeleton (M-11), trivial baselines and cluster-bootstrap CIs (M-10), the event-table-to-twin adapter (T-06). None needs real data to write.
+2. **AI, now:** the prequential harness skeleton (M-11), trivial baselines and cluster-bootstrap CIs (M-10), the event-table-to-twin adapter (T-06). None needs real data to write.
 3. **AI after H2:** close R3, R5-R7, R9-R11 with the evidence; fix defects it exposes.
 4. **AI after H4:** ingest `bio.csv`, stratified prior and folds (D-06, M-05, D-16).
 5. **AI:** Phase 3 experiment run once D-14 shows enough events; freeze it.
@@ -136,7 +136,7 @@ Only items that automation cannot do. Batched so you can answer once.
 | ID | Why automation is insufficient | Your one instruction |
 |---|---|---|
 | **H1** | A scientific choice that evidence cannot settle yet: the outcome window anchor (`docs/data_validity_rules.md` section B). | Reply "confirm D1" or "use meal-end +20 min" (I will implement the alternative as the primary and keep the other as sensitivity). |
-| **H2** | The real data are not in the engineering environment. | In PowerShell run `python scripts\build_event_table.py`, then `python scripts\audit_cgm_sampling_phase.py`, then `python scripts\audit_meal_event_semantics.py`, and paste each printed JSON (aggregate-only; skim it first). Add `--channel "Libre GL"` to the first for the second device. |
+| **H2** | The real data are not in the engineering environment. | In PowerShell run `python scripts\build_event_table.py`, then `python scripts\check_leakage_on_data.py`, then `python scripts\audit_cgm_sampling_phase.py`, then `python scripts\audit_meal_event_semantics.py`, and paste each printed JSON (aggregate-only; skim it first). Add `--channel "Libre GL"` to the first for the second device. |
 | **H3** | PhysioNet is not reachable from the engineering environment. | Open the dataset's `DataDictionary` and paste the definition rows for `Timestamp`, `Libre GL`, `Dexcom GL`, `Meal Type`, `Amount Consumed`, and any note on interpolation. Also say whether the download contains any file with native (uninterpolated) CGM readings. |
 | **H4** | `bio.csv` is not in the engineering environment. | Paste the 24 column names of `bio.csv` (names only, no values) and say which column is the glycaemic group. |
 | **H5** | Publishing is irreversible and the engineering workspace is ephemeral. | Reply "push" to publish the reconciled branch (fast-forward from `b570d9a`) and a `backup/local-only-research-core-1f53759` branch; or "hold". I have pushed nothing. |
