@@ -37,7 +37,8 @@ MACRO_COLS = ["Calories", "Carbs", "Protein", "Fat", "Fiber"]
 ACTIVITY_COLS = ["HR", "METs", "Calories (Activity)"]
 OFFSETS_MIN = [-60, -30, -15, 0, 15, 30, 45, 60, 90, 120, 150, 180]
 WINDOW = pd.Timedelta(hours=2)
-THRESHOLD = 180.0  # descriptive event counts only; NOT a decision to use this target
+THRESHOLD = 180.0  # descriptive counts only (>= 180, as the blueprint and rule D3). The baseline here is the NEAREST reading
+#                     to t0 (it may lie just after t0); authoritative, lag-guarded counts come from scripts/build_event_table.py
 GAP_EDGES_MIN = [0, 1, 5, 15, 30, 60, 120, 240]
 MAX_LABELS = 40
 
@@ -224,8 +225,8 @@ def process_file(path: Path, acc: dict) -> None:
         n[f"{c}|meals_window_complete_80pct"] += int((comp >= 0.8).sum())
         n[f"{c}|meals_baseline_ge_180"] += int((base_ok & (base >= THRESHOLD)).sum())
         n[f"{c}|meals_eligible"] += int(eligible.sum())
-        pos = int((eligible & (peak > THRESHOLD)).sum())
-        n[f"{c}|meals_eligible_peak_gt_180"] += pos
+        pos = int((eligible & (peak >= THRESHOLD)).sum())
+        n[f"{c}|meals_eligible_peak_ge_180"] += pos
         acc[f"{c}|eligible_per_file"].append(int(eligible.sum()))
         acc[f"{c}|positives_per_file"].append(pos)
 
@@ -329,7 +330,7 @@ def summarize(acc: dict) -> dict:
             "window_ge_80pct_complete": n[f"{c}|meals_window_complete_80pct"],
             "baseline_already_ge_180": n[f"{c}|meals_baseline_ge_180"],
             "eligible_(baseline<180,window_complete)": n[f"{c}|meals_eligible"],
-            "eligible_with_peak_gt_180_in_2h": n[f"{c}|meals_eligible_peak_gt_180"],
+            "eligible_with_peak_ge_180_in_2h": n[f"{c}|meals_eligible_peak_ge_180"],
             "eligible_per_participant": _q(ep), "positives_per_participant": _q(pp),
             "participants_with_ge5_positives_and_ge5_negatives": int(sum(p >= 5 and e - p >= 5 for e, p in zip(ep, pp))),
         }
