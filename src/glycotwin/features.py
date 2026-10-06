@@ -49,6 +49,7 @@ MEAL_EVENT_COLUMNS = [
 
 OUTCOME_WINDOW = pd.Timedelta(hours=2)
 GLUCOSE_THRESHOLD_MG_DL = 180.0
+LABEL_TOLERANCE_MG_DL = 1e-6  # float slack when re-deriving the label from baseline + rise
 NUMERIC_COLUMNS = ["carbs_g", "baseline_glucose", "activity_level", "peak_glucose_rise"]
 
 
@@ -76,16 +77,16 @@ def validate_meal_events(df: pd.DataFrame) -> list[str]:
         problems.append("carbs_g has negative values")
 
     # The label must agree with the continuous target the Bayesian models regress on:
-    # label == 1[baseline + peak_rise > 180]. A mismatch means the adapter used a
+    # label == 1[baseline + peak_rise >= 180]. A mismatch means the adapter used a
     # different baseline/window for the two, and Models B/C probabilities would not
     # target the same event as the label.
     usable = np.isfinite(numeric["baseline_glucose"]) & np.isfinite(numeric["peak_glucose_rise"])
     usable &= df["label_exceeds_180"].isin([0, 1])
-    expected = (numeric["baseline_glucose"] + numeric["peak_glucose_rise"] > GLUCOSE_THRESHOLD_MG_DL)
+    expected = (numeric["baseline_glucose"] + numeric["peak_glucose_rise"] >= GLUCOSE_THRESHOLD_MG_DL - LABEL_TOLERANCE_MG_DL)
     n_mismatch = int((expected[usable].astype(int) != df.loc[usable, "label_exceeds_180"].astype(int)).sum())
     if n_mismatch:
         problems.append(
-            f"label_exceeds_180 disagrees with baseline_glucose + peak_glucose_rise > 180 "
+            f"label_exceeds_180 disagrees with baseline_glucose + peak_glucose_rise >= 180 "
             f"in {n_mismatch} rows"
         )
     return problems

@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
-from glycotwin.features import GLUCOSE_THRESHOLD_MG_DL, OUTCOME_WINDOW
+from glycotwin.features import GLUCOSE_THRESHOLD_MG_DL, LABEL_TOLERANCE_MG_DL, OUTCOME_WINDOW
 from glycotwin.models.bayesian import (
     MODEL_B_FEATURES,
     MODEL_C_FEATURES,
@@ -178,7 +178,7 @@ def reconcile_forecast(
       * if `observed_through` (the latest CGM time available) is given, it must reach
         meal_time + OUTCOME_WINDOW, otherwise the outcome is not yet fully observed;
       * the observed outcome must be finite and `observed_exceeds_180` must agree with
-        baseline_glucose + observed_peak_rise > 180 (same event as the forecast target).
+        baseline_glucose + observed_peak_rise >= 180 (same event as the forecast target).
     """
     record = store.get_forecast(forecast_id)
     if store.is_reconciled(forecast_id):
@@ -191,9 +191,9 @@ def reconcile_forecast(
     if not np.isfinite(observed_peak_rise):
         raise ValueError("observed_peak_rise must be finite")
     baseline = float(record.meal_row["baseline_glucose"])
-    if bool(baseline + observed_peak_rise > GLUCOSE_THRESHOLD_MG_DL) != bool(observed_exceeds_180):
+    if bool(baseline + observed_peak_rise >= GLUCOSE_THRESHOLD_MG_DL - LABEL_TOLERANCE_MG_DL) != bool(observed_exceeds_180):
         raise ValueError(
-            "observed_exceeds_180 is inconsistent with baseline_glucose + observed_peak_rise > 180"
+            "observed_exceeds_180 is inconsistent with baseline_glucose + observed_peak_rise >= 180"
         )
 
     twin = store.current_twin(record.participant_id)

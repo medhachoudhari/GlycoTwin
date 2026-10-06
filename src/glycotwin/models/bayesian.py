@@ -29,10 +29,11 @@ Assumptions that remain and need confirming against the blueprint / real data:
     non-negative and likely right-skewed, and its variance probably grows with carbs;
   * participants are exchangeable draws from one population (no covariates in the prior).
 
-P(exceed 180) is the posterior-predictive probability that baseline + rise > 180, i.e.
+P(exceed 180) is the posterior-predictive probability that baseline + rise >= 180, i.e.
 Phi((baseline + mean_rise - 180) / predictive_std), where predictive_std combines
 parameter uncertainty and residual noise. It equals the label
-`label_exceeds_180 = 1[baseline_glucose + peak_glucose_rise > 180]` *only if* the adapter
+`label_exceeds_180 = 1[baseline_glucose + peak_glucose_rise >= 180]` (the blueprint's inclusive
+threshold; for a continuous predictive distribution P(>=180) == P(>180)) *only if* the adapter
 defines peak_glucose_rise = max(CGM in the window) - baseline_glucose with the same
 baseline (features.validate_meal_events checks this consistency).
 """
@@ -221,7 +222,7 @@ class ForecastDistribution:
 def forecast_exceeds_180(
     state: BayesianLinearState, x_row: pd.Series, baseline_glucose: float
 ) -> ForecastDistribution:
-    """P(baseline + rise > 180) and a 90% predictive interval on the rise."""
+    """P(baseline + rise >= 180) and a 90% predictive interval on the rise."""
     x = build_design_matrix(x_row.to_frame().T, state.feature_names, state.activity_center)[0]
     mean_rise = float(x @ state.mean)
     predictive_std = float(np.sqrt(state.noise_variance + x @ state.covariance @ x))

@@ -28,7 +28,7 @@ def make_meals(n_per_participant=30, participants=("p1", "p2"), seed=0,
             rows.append(dict(
                 participant_id=p, meal_time=t0 + pd.Timedelta(hours=spacing_hours * i),
                 carbs_g=carbs, baseline_glucose=base, activity_level=act,
-                peak_glucose_rise=rise, label_exceeds_180=int(base + rise > 180),
+                peak_glucose_rise=rise, label_exceeds_180=int(base + rise >= 180),
                 data_quality_flag="ok"))
     return pd.DataFrame(rows)
 
@@ -53,7 +53,7 @@ def make_hierarchical_meals(n_participants=40, n_meals=40, seed=0, sens_mean=0.7
             rows.append(dict(
                 participant_id=f"p{i:03d}", meal_time=t0 + pd.Timedelta(hours=spacing_hours * j),
                 carbs_g=carbs, baseline_glucose=base, activity_level=act,
-                peak_glucose_rise=rise, label_exceeds_180=int(base + rise > 180),
+                peak_glucose_rise=rise, label_exceeds_180=int(base + rise >= 180),
                 data_quality_flag="ok"))
     return pd.DataFrame(rows)
 
