@@ -31,7 +31,9 @@ PLACEHOLDER_MINIMUMS = {"participants": 20, "events_per_participant_median": 8, 
 COMPARISONS = [  # (a, b, metric, subset) fixed in advance; negative estimate favours a
     ("B", "frozen_B", "brier", "all"), ("B", "B_shuffled", "brier", "all"), ("B", "personal_rate", "brier", "all"),
     ("C", "B", "brier", "all"), ("C", "B", "brier", "active"), ("C", "B", "brier", "sedentary"),
-    ("C", "C_perm_activity", "brier", "all"), ("B", "A", "brier", "all"), ("C", "A", "brier", "all"),
+    ("C", "C_perm_activity", "brier", "all"),
+    # does PERSONAL activity learning add anything beyond a population-level activity effect?
+    ("C", "frozen_C", "brier", "all"), ("C", "frozen_C", "brier", "active"), ("frozen_C", "frozen_B", "brier", "active"), ("B", "A", "brier", "all"), ("C", "A", "brier", "all"),
     ("C", "B", "log_loss", "active"), ("B", "frozen_B", "mae_rise", "all"), ("C", "B", "mae_rise", "active"),
 ]
 

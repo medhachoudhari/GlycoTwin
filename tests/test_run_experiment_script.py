@@ -56,3 +56,11 @@ def test_adequate_synthetic_data_runs_and_reports_every_prelisted_comparison(tmp
 def test_missing_table_is_a_clear_error_that_does_not_echo_the_path(tmp_path, capsys):
     assert rx.main(["--table", str(tmp_path / "nope.csv")]) == 2
     assert "nope.csv" not in capsys.readouterr().err
+
+
+def test_the_population_activity_control_is_among_the_prelisted_comparisons():
+    """C vs frozen_C separates personal activity learning from a population-level activity effect;
+    it must be fixed in advance, not added after seeing results."""
+    pairs = {(a, b, sub) for a, b, _m, sub in rx.COMPARISONS}
+    assert ("C", "frozen_C", "active") in pairs and ("frozen_C", "frozen_B", "active") in pairs
+    assert len(rx.COMPARISONS) == len(set(rx.COMPARISONS))
