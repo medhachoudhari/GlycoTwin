@@ -44,6 +44,7 @@ scripts/check_leakage_on_data.py the leakage unit test on real participant files
 scripts/run_experiment.py        prequential A/B/C experiment with controls, clustered CIs, manifest
 scripts/audit_cgm_sampling_phase.py   second-difference test of CGM sampling structure
 scripts/audit_meal_event_semantics.py meal-row semantics probes
+scripts/audit_meal_photo_pairing.py   meal row vs image rows: can a meal end be reconstructed? (read-only, aggregate)
 scripts/audit_dataset.py, audit_meal_events.py, audit_cgm_interpolation.py   earlier audits (kept)
 scripts/derive_aggregate_summary.py   redacted aggregate summary from the committed inventory
 data/raw|interim|processed       local only, git-ignored

@@ -40,6 +40,24 @@ between them; (4) it does not hard-code an unverified duration.
 confirmation (Human Action H1).** If `t0` turns out to be a later logging time rather than a start (R1),
 part of the response precedes `t0` and this decision must be revisited.
 
+### B2. Evidence on `meal_end` from the authors' own repository (inspected; real-data pairing NOT yet run)
+
+Source: `PSI-TAMU/CGMacros` (README and `parse_data.ipynb`, fetched read-only; the PhysioNet and Nature pages were not
+reachable from this environment). Findings, stated as read, not inferred:
+
+- The README describes the CSV as holding "macros and the associated meal photos" and defines no `meal_end`, no
+  before/after photo convention and no pairing rule.
+- The authors' own analysis code never uses a meal end. For every meal row it takes the glucose values from the meal row
+  index onward (`index : index+135 : 15`, i.e. 9 Libre samples at 0, 15, ... 120 min on the 1-minute grid) and the macros
+  stored on that same row. The reference anchor is therefore **the meal row itself**, which is what decision D1 uses.
+- Nothing found says that photo rows after a meal row are "after eating" photos. The blueprint's claim that the dataset
+  "provides ground truth for meal start and end through photographs" is **not confirmed by anything I could read**.
+
+Consequence: until the data dictionary or the pairing audit (rule R15) shows otherwise, `meal_end` cannot be reconstructed
+without an assumption, and the blueprint's `(meal_end, meal_end + 120]` target is **not implementable as written**. D1
+(anchor at the meal row) is the only definition the authors' released code supports. This does not change D1; it records
+that its support is "matches the authors' code", not "proven to be the photographed meal start".
+
 ## C. Open rules (status OPEN until the stated evidence is committed)
 
 | ID | Question | Evidence required | Tool | Decision rule | Status |
@@ -58,6 +76,7 @@ part of the response precedes `t0` and this decision must be revisited.
 | R12 | Does the date shift preserve time of day? | Hour-of-day distribution by meal label. | `audit_meal_event_semantics.py` | Decides whether time-of-day features are allowed. | **OPEN** |
 | R13 | Which clinical variables exist and are safe to use? | The `bio.csv` header names (24 columns) and the glycaemic-group column. | human | Use only variables the blueprint lists and the file actually contains. | **OPEN (blocked on human)** |
 | R14 | Is the Bayesian model's observation/prior structure defensible on real data? | Residual diagnostics on real events: variance vs carbs, skew of the peak rise. See `docs/modelling_assumptions.md`. | after the event table exists | Gaussian, constant-variance, known noise variance are assumptions, not findings. | **OPEN** |
+| R15 | Can the official meal end be reconstructed from the `Image path` rows without an assumption? | Per meal row: number of candidate photos before the next meal row (0 / 1 / many); minutes from the meal row to them; whether image FILE NAMES carry an explicit before/after marker; data-dictionary text. | `scripts/audit_meal_photo_pairing.py` (11 synthetic tests; **not run on real data**) | Reconstructable only if (a) the dictionary or file names state which photo is the end photo, or (b) a documented, verified rule pairs them. A fixed duration or "next photo" or "next meal" is an assumption and must be recorded as a sensitivity analysis, never as ground truth. | **OPEN** |
 
 ## D. Claims in existing code with no committed evidence
 
