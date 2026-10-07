@@ -235,3 +235,10 @@ Only items that automation cannot do. Batched so you can answer once.
 | after D9-D12 implementation | `python -m pytest -q` in the working tree | **218 passed** (33 new in `tests/test_primary_event_definition.py`, 1 new leakage test). Mutation checks: reading at t0 counted, `>=` to `>`, activity window including t0, wrong 24 h window, snack regex, window-end boundary: all caught. |
 | not run | event-table pipeline on the real dataset | **NOT RUN in the engineering environment (the dataset is on the researcher's machine).** No real event counts exist yet; nothing in this file is a real-data event count. |
 
+### Verification entry: channel-reconciliation audit (uncommitted)
+| When | What | Result |
+|---|---|---|
+| after adding `scripts/compare_cgm_channels.py` | `python -m pytest -q` | **234 passed** (218 + 16 new tests in `tests/test_compare_cgm_channels.py`). Mutation checks: Libre/Dexcom sign flip, delta boundary, core eligibility AND to OR, anchor mismatch kept, direction swap, nearest-channel distance, valid-in-neither count, wrong baseline column: all caught. |
+| researcher-run (reported in chat, not committed) | real event table, both channels, D9 definition | Libre 1,697 / 1,262 / 301 / 961 (valid / core / pos / neg); Dexcom 1,666 / 1,230 / 534 / 696; leakage 45/45 on both. |
+| not run | `compare_cgm_channels.py` on the real data | **NOT RUN in the engineering environment.** No real channel-comparison numbers exist yet. See `docs/channel_reconciliation.md`. |
+
