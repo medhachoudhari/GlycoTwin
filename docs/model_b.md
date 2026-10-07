@@ -63,3 +63,13 @@ and into beta, so beta is "rise per gram" through the origin, not a pure carbohy
 noise variance (R14); no forgetting (sensitivity assumed constant over the 10 days);
 the update uses only core-eligible (isolated) meals; probabilities are raw; Libre primary is PROPOSED (D14); results are
 channel-conditional; synthetic tests prove the code, not the science.
+
+## 6. Re-run on Model C's exact event subset (paired B-vs-C preparation)
+`python scripts\run_model_b.py --population activity-eligible` runs Model B, unchanged, on exactly Model C's events (core-eligible AND activity-eligible).
+- The folds are built from ALL core-eligible participants (new optional `fold_group_of` argument of `run_model_b`; the default path is unchanged), so they are
+  identical to Models A and C even if a participant has no activity-eligible events (tested: without the argument the folds would drift).
+- Outputs carry an `_activity_eligible` suffix and never overwrite the original core-eligible run (`model_b_<channel>.json`, the forecasts CSV and the trajectories file keep their names).
+- The report manifest records the population, the core event count and the number of events dropped for missing or low-coverage activity.
+- `model_c_cv.compare_c_to_b` pairs the two forecast files on identical events and refuses the core-eligible B run.
+Model B still never reads activity; its formulation, prior and results are unchanged.
+
