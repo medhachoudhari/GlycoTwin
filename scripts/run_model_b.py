@@ -7,7 +7,8 @@ trajectories, fold assignment) go to git-ignored local folders. Research model; 
 
 Usage (PowerShell):
     $env:GLYCOTWIN_DATA_ROOT = "C:\\path\\to\\CGMacros"
-    python scripts\\run_model_b.py
+    python scripts\\run_model_b.py                                  # core-eligible events (the original run)
+    python scripts\\run_model_b.py --population activity-eligible   # Model C's events, for the paired B-vs-C comparison
 """
 
 from __future__ import annotations
@@ -44,6 +45,10 @@ def main(argv=None) -> int:
     ap.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     ap.add_argument("--n-boot", type=int, default=1000)
     ap.add_argument("--out-dir", default=None, help="Local output folder for the JSON report (default data/interim/audit_local).")
+    ap.add_argument("--population", default="core-eligible", choices=["core-eligible", "activity-eligible"],
+                    help="core-eligible (default, the original Model B run) or activity-eligible: exactly Model C's events, for the paired "
+                         "B-vs-C comparison. The folds always come from ALL core-eligible participants, so they are identical to Models A and C; "
+                         "outputs get an _activity_eligible suffix and never overwrite the core-eligible run.")
     args = ap.parse_args(argv)
 
     safe = args.channel.replace(" ", "_")
@@ -67,25 +72,41 @@ def main(argv=None) -> int:
     if "eligible_core" not in table.columns:
         print("error: the event table has no eligible_core column.", file=sys.stderr)
         return 2
-    events = table[table["eligible_core"].astype(bool)].copy()
+    core = table[table["eligible_core"].astype(bool)].copy()
+    activity_population = args.population == "activity-eligible"
+    if activity_population:
+        if "eligible_activity" not in table.columns:
+            print("error: the event table has no eligible_activity column.", file=sys.stderr)
+            return 2
+        events = core[core["eligible_activity"].astype(bool)].copy()          # same rule as Model C's select_activity_eligible
+    else:
+        events = core
     try:
-        group_of = participant_groups(pd.read_csv(bio_path), events["participant_id"].unique())
+        group_of = participant_groups(pd.read_csv(bio_path), core["participant_id"].unique())      # ALL core participants define the folds
     except GroupMappingError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     try:
         report, oof_b, oof_a, trajs, folds = run_model_b(events, group_of, seed=args.seed, threshold=args.threshold,
-                                                         n_boot=args.n_boot, channel=args.channel, event_table_name=table_path.name)
+                                                         n_boot=args.n_boot, channel=args.channel, event_table_name=table_path.name,
+                                                         fold_group_of=group_of if activity_population else None)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    report["manifest"]["population"] = ("core-eligible AND activity-eligible events (Model C's population, for the paired B-vs-C comparison)"
+                                        if activity_population else "core-eligible events")
+    report["manifest"]["n_core_events"] = int(len(core))
+    if activity_population:
+        report["manifest"]["n_events_dropped_for_missing_or_low_coverage_activity"] = int(len(core) - len(events))
+        report["manifest"]["folds_built_from"] = "all core-eligible participants (same function, participants and seed as Models A and C)"
     out_dir = Path(args.out_dir) if args.out_dir else REPO_ROOT / "data" / "interim" / "audit_local"
     proc = REPO_ROOT / "data" / "processed" if not args.out_dir else out_dir
     out_dir.mkdir(parents=True, exist_ok=True); proc.mkdir(parents=True, exist_ok=True)
+    tag = f"{safe}_activity_eligible" if activity_population else safe                # never overwrite the core-eligible run
     text = json.dumps(report, indent=2, default=lambda o: o.item() if hasattr(o, "item") else str(o))
-    (out_dir / f"model_b_{safe}.json").write_text(text, encoding="utf-8")
-    oof_b.to_csv(proc / f"model_b_sequential_forecasts_{safe}.csv", index=False)
-    (out_dir / f"model_b_trajectories_{safe}.json").write_text(
+    (out_dir / f"model_b_{tag}.json").write_text(text, encoding="utf-8")
+    oof_b.to_csv(proc / f"model_b_sequential_forecasts_{tag}.csv", index=False)
+    (out_dir / f"model_b_trajectories_{tag}.json").write_text(
         json.dumps({"_note": "participant-level; local only, never commit", "folds": folds, "trajectories": trajs}, indent=1,
                    default=lambda o: o.item() if hasattr(o, "item") else str(o)), encoding="utf-8")
     print(text)

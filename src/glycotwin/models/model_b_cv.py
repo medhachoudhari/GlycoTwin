@@ -199,11 +199,22 @@ def fingerprint(events: pd.DataFrame) -> str:
 
 
 def run_model_b(events: pd.DataFrame, group_of: Dict[str, str], seed: int = 0, threshold: float = ma.DEFAULT_THRESHOLD,
-                n_boot: int = 1000, channel: str = "Libre GL", event_table_name: str = ""):
+                n_boot: int = 1000, channel: str = "Libre GL", event_table_name: str = "",
+                fold_group_of: Optional[Dict[str, str]] = None):
     """Model B with the same participants, events, folds (seed) and metric conventions as Model A, plus a paired
-    comparison with Model A. Returns (report, oof_b, oof_a, trajectories, folds)."""
+    comparison with Model A. Returns (report, oof_b, oof_a, trajectories, folds).
+
+    fold_group_of (optional): participant -> group for ALL participants that define the folds. Pass it when `events` is a
+    subset (e.g. the activity-eligible events used by Model C) so the folds stay identical to Models A and C even if a
+    participant has no events in the subset. Default None keeps the original behaviour (folds from the participants in `events`)."""
     ev = _check(events)
-    folds = ma.make_participant_folds({p: group_of[p] for p in ev["participant_id"].unique()}, ma.N_SPLITS, seed)
+    if fold_group_of is None:
+        folds = ma.make_participant_folds({p: group_of[p] for p in ev["participant_id"].unique()}, ma.N_SPLITS, seed)
+    else:
+        missing = set(ev["participant_id"]) - set(fold_group_of)
+        if missing:
+            raise ValueError(f"{len(missing)} participants in the events are not in fold_group_of")
+        folds = ma.make_participant_folds(dict(fold_group_of), ma.N_SPLITS, seed)
     oof_b, trajs, priors = cross_validated_sequential(ev, folds)
     oof_a = ma.cross_validated_predictions(ev, folds)
     b_metrics = ma.metric_bundle(oof_b["y"], oof_b["p"], threshold, oof_b["fold_train_prevalence"].to_numpy())
