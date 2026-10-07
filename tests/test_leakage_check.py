@@ -46,6 +46,20 @@ def test_a_pipeline_that_reads_the_future_is_caught(monkeypatch):
     assert not r["passed"] and "activity_level" in r["blueprint_mismatched_columns"]
 
 
+def test_a_pipeline_that_reads_the_anchor_row_activity_is_caught_only_by_the_anchor_inclusive_check(monkeypatch):
+    """Reading the METs value stamped AT the meal row never touches the strict future, so the blueprint test passes;
+    the primary definition says the anchor row is not past information for activity features."""
+    real = events.pre_meal_activity
+
+    def at_anchor(df, t0, col="METs", hours=4.0, min_coverage=0.5):
+        return real(df, pd.Timestamp(t0) + pd.Timedelta(minutes=1), col, hours, min_coverage)
+    monkeypatch.setattr(events, "pre_meal_activity", at_anchor)
+    d = frame(); d.loc[400, "METs"] = 1.4          # the pipeline would see the anchor value; mutation sets it to 12345
+    r = check_feature_leakage(d, "P1")
+    assert r["blueprint_test_passed"] and r["lag_guard_test_passed"] and not r["anchor_inclusive_test_passed"] and not r["passed"]
+    assert "activity_level" in r["anchor_inclusive_mismatched_columns"]
+
+
 def test_a_baseline_that_ignores_the_lag_guard_passes_the_blueprint_test_but_not_the_stronger_one(monkeypatch):
     """A pipeline that uses the reading AT t0 as its baseline never reads past t0, so the blueprint's test
     passes; the lag guard exists precisely because the reading at t0 may blend in later readings."""

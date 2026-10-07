@@ -37,8 +37,11 @@ FEATURE_COLUMNS = [
     "carbs_g", "protein_g", "fat_g", "fiber_g", "calories",
     "baseline_glucose", "baseline_age_minutes", "trend_slope_30min",
     "activity_level", "activity_coverage", "time_since_last_meal_min",
+    "activity_1h", "activity_1h_coverage", "activity_24h", "activity_24h_coverage", "label_norm",
 ]
-OUTCOME_COLUMNS = ["peak_glucose", "peak_glucose_rise", "label_exceeds_180", "n_window_readings"]
+# Preserved for audit; deliberately NOT a feature (may be recorded after eating, rule D7).
+RETAINED_RAW_COLUMNS = ["amount_consumed_raw"]
+OUTCOME_COLUMNS = ["peak_glucose", "peak_glucose_rise", "label_exceeds_180", "n_window_readings", "window_completeness"]
 ELIGIBILITY_COLUMNS = ["overlaps_prior_window", "overlaps_next_window", "isolated",
                        "eligible_core", "eligible_activity", "ineligible_reasons", "data_quality_flag"]
 
@@ -98,11 +101,12 @@ def compute_outcome(cgm_window: List[float], baseline: Optional[float], threshol
     after = np.asarray(cgm_window[1:], dtype=float)
     after = after[np.isfinite(after)]
     if after.size == 0:
-        return {"peak_glucose": np.nan, "peak_glucose_rise": np.nan, "label_exceeds_180": np.nan, "n_window_readings": 0}
+        return {"peak_glucose": np.nan, "peak_glucose_rise": np.nan, "label_exceeds_180": np.nan, "n_window_readings": 0,
+                "window_completeness": 0.0}
     peak = float(after.max())
     rise = peak - baseline if baseline is not None else np.nan
     return {"peak_glucose": peak, "peak_glucose_rise": rise, "label_exceeds_180": int(peak >= threshold),
-            "n_window_readings": int(after.size)}
+            "n_window_readings": int(after.size), "window_completeness": float(after.size / max(len(cgm_window) - 1, 1))}
 
 
 # ----------------------------------------------------------------------------- table
@@ -126,6 +130,8 @@ def build_event_table(
         t0 = ev["meal_time"]
         lag = ev["baseline_lag_minutes"]
         act = pre_meal_activity(sdf, t0, activity_col, activity_hours, min_activity_coverage)
+        act1 = pre_meal_activity(sdf, t0, activity_col, 1.0, 0.0)      # strictly before t0, like every activity feature
+        act24 = pre_meal_activity(sdf, t0, activity_col, 24.0, 0.0)
         outcome = compute_outcome(ev["CGM_Window"], ev["baseline_glucose"])
 
         def macro(name):
@@ -152,12 +158,15 @@ def build_event_table(
         rows.append({
             "participant_id": participant_id, "event_id": ev["event_id"], "meal_time": t0,
             "label_raw": ev["Original Meal Type"], "label_norm": ev["Normalized Meal Type"],
+            "amount_consumed_raw": ev.get("amount_consumed_raw", np.nan),
             "carbs_g": carbs, "protein_g": macro("Protein"), "fat_g": macro("Fat"), "fiber_g": macro("Fiber"),
             "calories": macro("Calories"),
             "baseline_glucose": np.nan if ev["baseline_glucose"] is None else ev["baseline_glucose"],
             "baseline_age_minutes": np.nan if ev["baseline_age_minutes"] is None else ev["baseline_age_minutes"],
             "trend_slope_30min": pre_meal_trend_slope(sdf, t0, cgm_col, lag),
             "activity_level": act["mean"], "activity_coverage": act["coverage"],
+            "activity_1h": act1["mean"], "activity_1h_coverage": act1["coverage"],
+            "activity_24h": act24["mean"], "activity_24h_coverage": act24["coverage"],
             "time_since_last_meal_min": np.nan if ev["prior_meal_gap_minutes"] is None else ev["prior_meal_gap_minutes"],
             **outcome,
             "overlaps_prior_window": ev["overlaps_prior_window"], "overlaps_next_window": ev["overlaps_next_window"],
@@ -186,6 +195,8 @@ def event_count_report(tables: Dict[str, EventTable], group_of: Optional[Dict[st
     label = {pid: f"P{int(k) + 1}" for pid, k in zip(ids, order)}
 
     extraction_reasons, ineligible_reasons = Counter(), Counter()
+    type_all, type_kept, unrecognized_raw = Counter(), Counter(), Counter()
+    completeness, excluded_valid_share, tables_kept = [], [], []
     per, overall = [], Counter()
     by_group: Dict[str, Counter] = {}
     for pid in ids:
@@ -196,6 +207,18 @@ def event_count_report(tables: Dict[str, EventTable], group_of: Optional[Dict[st
         pos = int((core["label_exceeds_180"] == 1).sum()) if len(core) else 0
         neg = int((core["label_exceeds_180"] == 0).sum()) if len(core) else 0
         extraction_reasons.update(e["reason"] for e in et.exclusions)
+        for e in et.exclusions:
+            type_all[str(e.get("label_norm"))] += 1
+            if e.get("label_norm") == "unrecognized":
+                unrecognized_raw[str(e.get("label_raw"))[:30]] += 1
+            nv = (e.get("detail") or {}).get("n_valid_readings")
+            if nv is not None:
+                excluded_valid_share.append(nv / 121.0)
+        if len(t):
+            kinds = [str(x) for x in t["label_norm"].tolist()]
+            type_all.update(kinds); type_kept.update(kinds)
+            unrecognized_raw.update(str(x)[:30] for x in t.loc[t["label_norm"] == "unrecognized", "label_raw"])
+            completeness += t["window_completeness"].tolist(); tables_kept.append(t)
         for r in (t["ineligible_reasons"] if len(t) else []):
             ineligible_reasons.update(x for x in r.split(";") if x)
         rec = {"participant": label[pid], "n_meal_rows": int(n_rows), "n_excluded_at_extraction": len(et.exclusions),
@@ -210,7 +233,24 @@ def event_count_report(tables: Dict[str, EventTable], group_of: Optional[Dict[st
             g = by_group.setdefault(group_of[pid], Counter())
             g.update({k: rec[k] for k in ("n_meal_rows", "n_eligible_core", "n_positive", "n_negative")})
             g["n_participants"] += 1
+    kept = pd.concat(tables_kept, ignore_index=True) if tables_kept else pd.DataFrame()
+    core_all = kept[kept["eligible_core"]] if len(kept) else kept
+
+    def _miss(frame):
+        return {c: {"n_missing": int(frame[c].isna().sum()), "share_missing": float(frame[c].isna().mean())}
+                for c in FEATURE_COLUMNS if c in frame.columns} if len(frame) else {}
+
+    def _q(v):
+        v = np.asarray(v, dtype=float)
+        return {"n": 0} if v.size == 0 else {"n": int(v.size), "min": float(v.min()), "p5": float(np.percentile(v, 5)),
+                                              "median": float(np.median(v)), "mean": float(v.mean()), "max": float(v.max()),
+                                              "share_complete_120": float((v >= 1.0).mean())}
     return {
+        "meal_type_counts_all_meal_rows": dict(sorted((str(k), v) for k, v in type_all.items())), "meal_type_counts_retained": dict(sorted((str(k), v) for k, v in type_kept.items())),
+        "unrecognized_meal_type_raw_values": dict(unrecognized_raw),
+        "window_completeness_retained": _q(completeness),
+        "valid_reading_share_of_excluded_windows": _q(excluded_valid_share),
+        "feature_missingness_window_valid": _miss(kept), "feature_missingness_eligible_core": _miss(core_all),
         "overall": dict(overall), "n_participants": len(ids),
         "participants_with_both_classes": sum(1 for r in per if r["n_positive"] >= min_per_class and r["n_negative"] >= min_per_class),
         "min_per_class": min_per_class,

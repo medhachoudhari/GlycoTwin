@@ -39,6 +39,15 @@ def _mutate_after(df: pd.DataFrame, cutoff, cgm_cols=None) -> pd.DataFrame:
     return d
 
 
+def _mutate_from(df: pd.DataFrame, cutoff, cols) -> pd.DataFrame:
+    d = df.copy()
+    m = (d["Timestamp"] >= cutoff).to_numpy()
+    for c in cols:
+        if c not in ("Timestamp", "Meal Type", "Normalized Meal Type", "Image path") and pd.api.types.is_numeric_dtype(d[c]):
+            d.loc[m, c] = SENTINEL
+    return d
+
+
 def check_feature_leakage(df: pd.DataFrame, participant_id: str, cgm_col: str = "Dexcom GL", meal_number: int = 0,
                           **build_kwargs) -> dict:
     """Check one meal (the `meal_number`-th window-valid event). Returns pass/fail and the failing columns."""
@@ -68,5 +77,12 @@ def check_feature_leakage(df: pd.DataFrame, participant_id: str, cgm_col: str = 
     cgm_features = ["baseline_glucose", "baseline_age_minutes", "trend_slope_30min"]
     out["lag_guard_mismatched_columns"] = [] if strong is None else [c for c in cgm_features if not _same(row[c], strong[c])]
     out["lag_guard_test_passed"] = strong is not None and not out["lag_guard_mismatched_columns"]
-    out["passed"] = out["blueprint_test_passed"] and out["lag_guard_test_passed"]
+    # Third check (primary-definition decision D9): the anchor row itself is not past information for the
+    # Fitbit-type covariates. Mutate every non-CGM, non-macro numeric column AT and after t0; features must not move.
+    macro_cols = {"Calories", "Carbs", "Protein", "Fat", "Fiber"}
+    fitbit_like = {c for c in df.columns if c not in macro_cols and c not in ("Dexcom GL", "Libre GL")}
+    inclusive = rebuild(_mutate_from(df, t0, fitbit_like))
+    out["anchor_inclusive_mismatched_columns"] = [] if inclusive is None else [c for c in FEATURE_COLUMNS if not _same(row[c], inclusive[c])]
+    out["anchor_inclusive_test_passed"] = inclusive is not None and not out["anchor_inclusive_mismatched_columns"]
+    out["passed"] = out["blueprint_test_passed"] and out["lag_guard_test_passed"] and out["anchor_inclusive_test_passed"]
     return out

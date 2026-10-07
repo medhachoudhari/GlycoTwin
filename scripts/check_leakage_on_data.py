@@ -1,7 +1,7 @@
 """Run the blueprint's leakage unit test on REAL participant files (aggregate output only).
 
 For each participant file: pick one window-valid meal, build its features with the real pipeline,
-mutate everything after the meal, rebuild, and require the features to be identical. The blueprint
+mutate everything after the meal (and, separately, the Fitbit-type columns AT the meal row), rebuild, and require the features to be identical. The blueprint
 requires this to pass for at least one meal per participant before any model training.
 
 Output has counts and column names only. Exit code 0 only if every checked participant passes.
@@ -52,7 +52,7 @@ def main(argv=None) -> int:
             tally["no_window_valid_event"] += 1
             continue
         tally["passed" if r["passed"] else "failed"] += 1
-        failing.update(r["blueprint_mismatched_columns"] + r["lag_guard_mismatched_columns"])
+        failing.update(r["blueprint_mismatched_columns"] + r["lag_guard_mismatched_columns"] + r["anchor_inclusive_mismatched_columns"])
     report = {"_privacy": "aggregate-only", "channel": args.channel, "files": len(files), "result": dict(tally),
               "failing_feature_columns": dict(failing), "read_errors_by_exception_type": dict(errors),
               "all_checked_participants_pass": tally.get("failed", 0) == 0 and tally.get("passed", 0) > 0,

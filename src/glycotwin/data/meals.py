@@ -8,8 +8,9 @@ Limitations:
   attempted resampling or downsampling.
 
 Rules implemented here (see docs/data_validity_rules.md; open questions stay open there):
-- D1 window anchor: the outcome window starts at the logged meal time t0 and spans
-  `window_minutes` (default 120). Whether t0 is a meal start is NOT verified.
+- D1 window anchor (LOCKED for the primary analysis, decision D9): t0 is the `Meal Type` row timestamp. It is NOT
+  called meal_end and nothing here pairs photos or assumes a meal duration. The outcome window is (t0, t0 + 120 min].
+  Whether t0 is a true meal start is NOT verified (rule R1).
 - Gaps are measured on VALID readings over the whole window, including the gap between t0 and
   the first valid reading (leading) and between the last valid reading and the window end
   (trailing), not only between readings (the pre-reconciliation code missed the leading gap).
@@ -20,6 +21,8 @@ Rules implemented here (see docs/data_validity_rules.md; open questions stay ope
   documented native interval (a conservative guard; the documented intervals are
   blueprint-reported and unverified).
 """
+import re
+
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
@@ -30,7 +33,25 @@ from typing import Any, Dict, List, Optional
 # conservative default lag for the baseline guard.
 NATIVE_INTERVAL_MINUTES = {"Dexcom GL": 5, "Libre GL": 15}
 
-MACRO_COLS = ["Calories", "Carbs", "Protein", "Fat", "Fiber"]  # 'Amount Consumed' is excluded on purpose
+MACRO_COLS = ["Calories", "Carbs", "Protein", "Fat", "Fiber"]
+# Preserved verbatim for audit, NEVER a model feature: it may be recorded after eating (rule D7). Image path is never kept.
+RETAINED_RAW_COLS = {"Amount Consumed": "amount_consumed_raw"}
+
+CANONICAL_MEAL_TYPES = ("breakfast", "lunch", "dinner", "snack")
+UNRECOGNIZED_MEAL_TYPE = "unrecognized"
+
+
+def normalize_meal_type(value):
+    """Canonical meal type: breakfast, lunch, dinner, or snack (also 'snacks', 'snack 1', 'Snack2').
+    Missing -> NaN. Anything else -> 'unrecognized' (kept visible and counted, never guessed)."""
+    if pd.isna(value):
+        return np.nan
+    s = re.sub(r"\s+", " ", str(value).strip().lower())
+    if s in ("breakfast", "lunch", "dinner"):
+        return s
+    if re.fullmatch(r"snacks?( ?\d+)?", s):
+        return "snack"
+    return UNRECOGNIZED_MEAL_TYPE
 
 REASON_INVALID_TIME = "invalid_meal_timestamp"
 REASON_CHANNEL_MISSING = "cgm_channel_missing"
@@ -69,9 +90,7 @@ def load_participant_data(filepath: Path | str) -> pd.DataFrame:
     if 'Meal Type' in df.columns:
         # Create a normalized version
         # Some values might be NaN, so we handle that
-        mask = df['Meal Type'].notna()
-        df['Normalized Meal Type'] = pd.Series(dtype='object')
-        df.loc[mask, 'Normalized Meal Type'] = df.loc[mask, 'Meal Type'].astype(str).str.strip().str.lower()
+        df['Normalized Meal Type'] = df['Meal Type'].map(normalize_meal_type).astype('object')
         
     return df
 
@@ -137,7 +156,8 @@ def extract_meal_events_detailed(
         t0 = times[i]
         event_id = f"{participant_id}-m{ordinal:03d}"
         ordinal += 1
-        base_rec = {"participant_id": participant_id, "event_id": event_id}
+        base_rec = {"participant_id": participant_id, "event_id": event_id,
+                    "label_raw": row["Meal Type"], "label_norm": normalize_meal_type(row["Meal Type"])}
 
         if pd.isna(t0):
             result.exclusions.append({**base_rec, "reason": REASON_INVALID_TIME, "reasons": [REASON_INVALID_TIME], "detail": {}})
@@ -192,10 +212,12 @@ def extract_meal_events_detailed(
         event = {
             "Timestamp": pd.Timestamp(t0),
             "Original Meal Type": row["Meal Type"],
-            "Normalized Meal Type": row.get("Normalized Meal Type", np.nan),
+            "Normalized Meal Type": normalize_meal_type(row["Meal Type"]),   # single source of truth, even for frames not built by load_participant_data
         }
         for mc in MACRO_COLS:
             event[mc] = row[mc] if mc in row else np.nan
+        for raw, kept in RETAINED_RAW_COLS.items():
+            event[kept] = row[raw] if raw in row else np.nan
         event["CGM_Window"] = w_vals.tolist()
         event.update(
             participant_id=participant_id, event_id=event_id, meal_time=pd.Timestamp(t0), cgm_channel=cgm_col,
