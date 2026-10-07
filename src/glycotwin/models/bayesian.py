@@ -49,6 +49,10 @@ from scipy import stats
 GLUCOSE_THRESHOLD_MG_DL = 180.0
 
 MODEL_B_FEATURES = ["intercept", "carbs_g"]
+# Blueprint form of Model B (decision H12): rise = beta_i * carbs, NO intercept. Used by models/model_b_cv.py.
+# MODEL_B_FEATURES above is the earlier intercept variant, still used by the legacy prequential harness
+# (models/experiment.py) and the in-memory twin store (twin/state.py); aligning those is pending the Model C work.
+MODEL_B_BLUEPRINT_FEATURES = ["carbs_g"]
 MODEL_C_FEATURES = ["intercept", "carbs_g", "carbs_x_activity"]
 
 # Fewer participants than this cannot support an estimate of between-participant spread.
