@@ -14,6 +14,13 @@ Real extraction by the researcher on both channels with the primary definition (
 both channels. The positive rate therefore differs markedly (about 24% vs 43% of core-eligible events); the audit exists to
 separate possible causes. These numbers were reported in chat; the JSON outputs are local and not committed.
 
+## Real-data result (researcher-reported, JSON not committed)
+45 participants; 1,229 matched core-eligible events. Libre positive 23.596%, Dexcom 43.450%; label disagreement 284/1,229 (23.108%),
+overwhelmingly Dexcom-positive / Libre-negative; kappa about 0.503; window maximum (Libre minus Dexcom) mean about -34.51 mg/dL, mean
+absolute about 38.39, Pearson about 0.867; a common 5-minute baseline lag did not materially change label disagreement (expected by
+construction, since the label does not use the baseline). Interpretation and the proposed primary/sensitivity rule:
+`docs/primary_channel_decision.md` (PROPOSED).
+
 ## Definition (reused, not re-implemented)
 Events come from `glycotwin.data.events.build_event_table` with the same defaults as `build_event_table.py`: anchor = `Meal Type`
 row timestamp, window = (t0, t0 + 120 min], target = maximum available glucose >= 180, leading/internal gap <= 15 min,

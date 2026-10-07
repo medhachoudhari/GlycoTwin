@@ -125,14 +125,14 @@ Legend for the last column: **AI** = I can complete it; **HUMAN** = needs you; *
 | D-13 | 8: target (peak, rise, label >= 180) | IMPLEMENTED | `events.compute_outcome`; `test_events.py` | Excludes the reading at t0; label inclusive; 140 mg/dL secondary label not added | R9 | add secondary label after counts exist | boundary and t0 tests pass | AI |
 | D-14 | 6 checkpoint: event counts | IMPLEMENTED | `events.event_count_report`, `scripts/build_event_table.py`; `test_build_event_table_script.py` (4) | Anonymised counts, exclusion reasons, per-class counts; groups need `bio.csv` | R9, R5 | run on your machine | counts per class and exclusion reason committed | HUMAN (H2) |
 | D-15 | 7: leakage unit test | IMPLEMENTED | `test_events.py` (13), `test_leakage_check.py` (5): mutation test through the real pipeline, a stronger lag-guard variant, a non-vacuity test, and proof the check fails when a pipeline leaks; `scripts/check_leakage_on_data.py` runs it on real files | Passes on synthetic frames. The blueprint requires it on real participants (>= 5) before training | real data | run `scripts\check_leakage_on_data.py` (written) | passes for >= 1 meal per participant on real files | HUMAN (H2) |
-| D-16 | 7/9: participant-level split for Model A (5-fold, stratified) | NOT STARTED | none | needs the group label | D-06 | build seeded fold manifest | disjoint participants per fold, seeded and reproducible | AI after H4 |
+| D-16 | 7/9: participant-level split for Model A (5-fold, stratified) | IMPLEMENTED, NOT RUN ON REAL DATA | `models/model_a_cv.py::make_participant_folds`, `tests/test_model_a_cv.py` (38) | Participant-level StratifiedKFold by A1c group, seeded, sorted ids; groups via verified `subject` mapping | D-06 | run `scripts/run_model_a.py` on the real Libre table | fold composition printed and reviewed | HUMAN (run) |
 | D-17 | 7/9: chronological split for B/C | IMPLEMENTED | `features.chronological_participant_split`, `assert_no_temporal_leakage`; `test_leakage_and_eval.py` | Per-participant, purges overlapping outcome windows. Blueprint says first half trains: parameter | none | add the prequential harness (M-11) | no train window reaches the first test meal | AI |
 
 ### 3.2 Models and experiment (sections 9, 10, 21, 22)
 
 | ID | Requirement | Status | Evidence | Works today / remains | Depends on, assumptions | Next action | Acceptance criterion | Who |
 |---|---|---|---|---|---|---|---|---|
-| M-01 | Model A: population XGBoost | PARTIAL | `models/baseline.py`; `experiment.py` (`include_model_a`); `test_run_experiment_script.py` | Fits/predicts, seeded, rejects single class; now evaluated leave-one-participant-out inside the harness (raw probabilities). No glycaemic-group feature, no isotonic calibration, no 5-fold stratified CV | D-06, D-16 | add isotonic calibration (inner split) and group stratification | isotonic fitted on training folds only; folds stratified by group | AI after H4 |
+| M-01 | Model A: population XGBoost | IMPLEMENTED (protocol), NOT RUN ON REAL DATA | `models/baseline.py`, `models/model_a_cv.py`, `scripts/run_model_a.py`, `docs/model_a.md`; 38 tests | Fixed untuned config; 3 features; native NaN handling; out-of-fold only; metrics + calibration + groups + clustered bootstrap | D-06, D-16 | real run; review of the open points in `docs/model_a.md` section 7 | OOF results reviewed by you | HUMAN (run, review) |
 | M-02 | Model B: personalised carb sensitivity | PARTIAL | `models/bayesian.py`; `test_bayesian.py` | Hierarchical prior + closed-form update. **Deviation from blueprint:** includes an intercept | R14 | decide intercept after real residual diagnostics | documented decision with diagnostics | AI after data |
 | M-03 | Model C: activity interaction | PARTIAL | same | Interaction term with centred activity, recovered on synthetic data | R10 | same | same | AI after data |
 | M-04 | Closed-form update | VERIFIED | `test_bayesian.py` (17): manual formula, ridge/MAP equivalence, sequential = batch, PSD, forecast = Monte Carlo; 16 mutants all caught | Mathematically correct; known noise variance is an assumption | none | none | tests pass | AI |
@@ -214,6 +214,8 @@ Only items that automation cannot do. Batched so you can answer once.
 | **H2** | The real data are not in the engineering environment. | In PowerShell run `python scripts\build_event_table.py`, then `python scripts\check_leakage_on_data.py`, then `python scripts\audit_cgm_sampling_phase.py`, then `python scripts\audit_meal_event_semantics.py`, and paste each printed JSON (aggregate-only; skim it first). Add `--channel "Libre GL"` to the first for the second device. |
 | **H3** | PhysioNet is not reachable from the engineering environment. | Open the dataset's `DataDictionary` and paste the definition rows for `Timestamp`, `Libre GL`, `Dexcom GL`, `Meal Type`, `Amount Consumed`, and any note on interpolation. Also say whether the download contains any file with native (uninterpolated) CGM readings. |
 | **H9** | **DONE (researcher-run).** The photo-pairing audit showed the official meal end cannot be reconstructed (rule R15). Primary definition locked as D9. | None. Optional: commit the aggregate JSON under `data/audit/` after you review it. |
+| **H11** | Model A open points (`docs/model_a.md` section 7): feature set vs the blueprint, thresholds, fixed hyper-parameters. | Confirm the three features (carbs_g, baseline_glucose, activity_level) and the two reporting thresholds, or say what to change, before the real run is interpreted. |
+| **H10** | Primary CGM channel (D14, PROPOSED). | Read `docs/primary_channel_decision.md`; read the data dictionary for `Libre GL` / `Dexcom GL` (H3); reply "lock D14", "revise" (say how) or "use <channel>" with your own non-performance reason. Confirm the minimums (H8) at the same time. |
 | **H4** | `bio.csv` is not in the engineering environment. | Paste the 24 column names of `bio.csv` (names only, no values) and say which column is the glycaemic group. |
 | **H5** | Publishing is irreversible and the engineering workspace is ephemeral. | Reply "push" to publish the reconciled branch (fast-forward from `b570d9a`) and a `backup/local-only-research-core-1f53759` branch; or "hold". I have pushed nothing. |
 | **H6** | Deleting tracked files is consequential. | Reply "replace legacy audit files" to remove `data/audit/dataset_inventory_summary.{json,md}` (still in Git history), or "keep". |
@@ -247,4 +249,16 @@ Only items that automation cannot do. Batched so you can answer once.
 |---|---|---|
 | after adding `scripts/audit_bio_groups.py` | `python -m pytest -q` | **273 passed** (234 + 39 new). Mutation checks: both A1c cut-offs, identifier-verified flag, identifier ignored, README sizes always true, fold feasibility, weakened identifier validation: all caught (the last two survived a first pass and got dedicated tests). |
 | not run | audit on the real `bio.csv` | **NOT RUN in the engineering environment.** No real group counts exist yet; D13 stays PROPOSED until the real output is reviewed. |
+
+### Verification entry: primary-channel review (documentation only, uncommitted)
+| When | What | Result |
+|---|---|---|
+| after writing `docs/primary_channel_decision.md` | `python -m pytest -q` | **273 passed** (unchanged: no code, test or event definition was changed). |
+| researcher-run, reported in chat | real Libre-vs-Dexcom reconciliation | 1,229 matched core events; label disagreement 23.1%; kappa about 0.50; Dexcom window max about 34.5 mg/dL higher on average. D14 is PROPOSED (not locked). |
+
+### Verification entry: Model A (uncommitted)
+| When | What | Result |
+|---|---|---|
+| after implementing Model A evaluation | `python -m pytest -q` | **311 passed** (273 + 38 new in `tests/test_model_a_cv.py`). Mutation checks: fold seed ignored, unsorted ids, validation rows in training, strict threshold, wrong rows scored, feature policy off, calibration slope on p, A1c cut-off, ambiguous identifier: all caught (three survived a first pass and got dedicated tests; one survivor is an equivalent mutant). |
+| not run | `scripts/run_model_a.py` on the real Libre event table | **NOT RUN in the engineering environment** (the table and bio.csv are on your machine). No real Model A result exists. |
 

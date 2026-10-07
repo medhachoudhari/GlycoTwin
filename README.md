@@ -45,6 +45,7 @@ scripts/run_experiment.py        prequential A/B/C experiment with controls, clu
 scripts/audit_cgm_sampling_phase.py   second-difference test of CGM sampling structure
 scripts/audit_meal_event_semantics.py meal-row semantics probes
 scripts/audit_meal_photo_pairing.py   meal row vs image rows: can a meal end be reconstructed? (read-only, aggregate)
+scripts/run_model_a.py                Model A (population XGBoost) participant-level stratified 5-fold out-of-fold evaluation
 scripts/audit_bio_groups.py           bio.csv glycaemic groups and participant mapping (read-only, aggregate)
 scripts/compare_cgm_channels.py       Libre vs Dexcom on identical meal events (channel reconciliation, not sensor validation)
 scripts/audit_dataset.py, audit_meal_events.py, audit_cgm_interpolation.py   earlier audits (kept)
