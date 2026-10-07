@@ -51,3 +51,9 @@ the GlycoTwin Master Blueprint, which was not available when this was written.
 - Flag meals with incomplete CGM coverage of the 2 h window, and meals whose window contains
   another meal (the peak is then not attributable to one meal).
 - `meal_time` may be privacy-shifted per participant: never compare times across participants.
+
+## Target and anchor limitations (primary definition D9/D10)
+- The anchor is the `Meal Type` row timestamp, not a verified meal start and not `meal_end`. Claims must read "within 120 minutes after the logged meal-row time".
+- The label uses the maximum AVAILABLE glucose, a lower bound on the true maximum. Windows with gaps up to the extraction limit can hide a peak; `window_completeness` is stored so this can be examined, not assumed away.
+- Anything that depends on how long the meal lasted (the blueprint's original `(meal_end, meal_end + 120]`) is not estimated here.
+

@@ -67,8 +67,7 @@ researcher to confirm (Human Action H8).
 
 1. **Interpolated CGM.** No documented flag separates native from interpolated values; the blueprint's
    native-timestamp plan may be impossible. Mitigation: lag guard; evidence pending (Gate 2).
-2. **Meal-row meaning.** Start, end or logging time is unconfirmed (R1); the outcome window anchor is a stated
-   decision awaiting confirmation (H1).
+2. **Meal-row meaning.** Start, end or logging time is unconfirmed (R1). The official `meal_end` cannot be reconstructed (R15, researcher-run audit), so the primary anchor is the meal-row timestamp (D9, locked); every claim is phrased relative to that logged time.
 3. **Self-reported macros and activity.** Meal composition is logged by participants; METs come from a wrist
    device. Errors in the covariate the claim depends on can create or hide an effect.
 4. **Confounding.** Activity timing correlates with time of day and meal type; the model does not adjust for
