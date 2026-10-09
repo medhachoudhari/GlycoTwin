@@ -26,6 +26,7 @@ import pandas as pd
 
 from glycotwin.config import REPO_ROOT, DatasetNotFoundError, get_dataset_root
 from glycotwin.data.groups import GroupMappingError, participant_groups
+from glycotwin.models.prior_schemes import GAMMA_WIDTHS, PRIOR_SCHEMES, event_table_info
 from glycotwin.models.model_a_cv import DEFAULT_THRESHOLD
 from glycotwin.models.model_c_cv import run_model_c, select_activity_eligible
 
@@ -48,6 +49,11 @@ def main(argv=None) -> int:
     ap.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     ap.add_argument("--n-boot", type=int, default=1000)
     ap.add_argument("--out-dir", default=None, help="Local output folder (default data/interim/audit_local).")
+    ap.add_argument("--prior-scheme", default="empirical_bayes", choices=list(PRIOR_SCHEMES),
+                    help="empirical_bayes (default, the primary protocol) or blueprint (opt-in sensitivity analyses S2/S3). Non-default outputs get a "
+                         "_prior-blueprint_gamma<width> suffix and never overwrite the primary run.")
+    ap.add_argument("--gamma-relative-sd", type=float, default=None, choices=list(GAMMA_WIDTHS),
+                    help="Blueprint prior only: prior sd of gamma = this x |beta| / rms(activity); prespecified widths 0.25, 0.5, 1, 2 (default 0.5 with --prior-scheme blueprint).")
     args = ap.parse_args(argv)
 
     safe = args.channel.replace(" ", "_")
@@ -81,10 +87,16 @@ def main(argv=None) -> int:
         return 2
     try:
         report, oof, trajs, folds = run_model_c(events, group_of, seed=args.seed, threshold=args.threshold, n_boot=args.n_boot,
-                                                channel=args.channel, event_table_name=table_path.name, n_core_events=int(len(core)))
+                                                channel=args.channel, event_table_name=table_path.name, n_core_events=int(len(core)),
+                                                prior_scheme=args.prior_scheme, gamma_relative_sd=args.gamma_relative_sd)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    report["manifest"].update(event_table_info(table_path))
+    report["manifest"]["protocol_arguments"] = {"channel": args.channel, "prior_scheme": args.prior_scheme,
+                                                "gamma_relative_sd": report["manifest"]["prior"]["gamma_relative_sd"], "seed": args.seed, "n_bootstrap": args.n_boot}
+    if args.prior_scheme != "empirical_bayes":
+        safe += f"_prior-{args.prior_scheme}_gamma{report['manifest']['prior']['gamma_relative_sd']:g}"          # never overwrite the primary run
     out_dir = Path(args.out_dir) if args.out_dir else REPO_ROOT / "data" / "interim" / "audit_local"
     proc = out_dir if args.out_dir else REPO_ROOT / "data" / "processed"
     out_dir.mkdir(parents=True, exist_ok=True); proc.mkdir(parents=True, exist_ok=True)

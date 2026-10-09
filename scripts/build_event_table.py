@@ -99,6 +99,17 @@ def main(argv=None) -> int:
     table_out.parent.mkdir(parents=True, exist_ok=True)
     report_out.parent.mkdir(parents=True, exist_ok=True)
     pd.concat([t.table for t in tables.values()], ignore_index=True).to_csv(table_out, index=False) if tables else None
+    if tables:
+        # Settings sidecar: lets every model run record the event definition it was given (channel, gap limit, isolation rule, outcome window).
+        from glycotwin.features import GLUCOSE_THRESHOLD_MG_DL, OUTCOME_WINDOW
+        from glycotwin.models.prior_schemes import git_state
+        sidecar = table_out.with_name(table_out.stem + ".settings.json")
+        sidecar.write_text(json.dumps({
+            "channel": args.channel, "max_cgm_gap_minutes": args.max_gap_minutes, "baseline_lag_minutes": args.baseline_lag_minutes,
+            "require_isolated": not args.allow_overlap, "on_duplicate_timestamps": args.on_duplicates,
+            "event_definition": "anchor = Meal Type row timestamp (decision D9); outcome window (t0, t0+window]; label = max available glucose >= threshold",
+            "outcome_window_minutes": OUTCOME_WINDOW.total_seconds() / 60.0, "label_threshold_mg_dl": GLUCOSE_THRESHOLD_MG_DL,
+            "n_event_rows": int(sum(len(t.table) for t in tables.values())), "builder_git": git_state()}, indent=2), encoding="utf-8")
     text = json.dumps(report, indent=2, default=lambda o: o.item() if hasattr(o, "item") else str(o))
     report_out.write_text(text, encoding="utf-8")
     print(text)

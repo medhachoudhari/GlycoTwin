@@ -5,9 +5,11 @@ Written because no earlier innovation audit existed in this repository (an expec
 It is synchronised with `docs/PROJECT_STATUS.md`; where they disagree, the evidence listed in
 PROJECT_STATUS wins, and one of the two files is wrong and must be fixed.
 
-**Bottom line today: the innovation is implemented in code and demonstrated on simulated data only. There is
-no evidence, for or against it, from CGMacros.** Nothing in this repository supports a claim that the
-activity-conditioned model improves calibration on real people.
+**Bottom line today:** the innovation is implemented, and a first real-data test exists. On the matched Libre sample (963 events, 34 participants,
+identical folds) Model C (activity-conditioned) shows tiny point-estimate advantages over Model B in AUC, Brier and log loss and a tiny disadvantage in rise MAE;
+the participant-clustered bootstrap did **not** establish superiority, and the small aggregate advantage disappeared after excluding participants with extreme estimated
+activity interactions. Under the decision rules in section 3 the result is **inconclusive** (every paired interval for the predictive metrics contains zero; the calibration point estimates, ECE, are slightly worse for C); nothing supports a claim that it improves calibration on real people.
+Details and what is still missing from the repository: `docs/model_b_vs_c_report.md`.
 
 ## 1. The claim, stated precisely
 
@@ -56,12 +58,13 @@ researcher to confirm (Human Action H8).
 
 | Component | Implemented | Demonstrated on real data |
 |---|---|---|
-| Activity-conditioned Bayesian personalisation (`models/bayesian.py`, Model C) | Yes; closed form verified (17 tests, 16 injected bugs caught) | No |
-| Forecast, observe, update lifecycle (`twin/state.py`) | Yes, in memory: idempotent, window-guarded, order-independent | No |
-| Uncertainty (posterior-predictive probability and interval) | Yes; probability matches Monte Carlo, interval has 90% coverage in simulation | No |
-| Leakage safeguards (`data/events.py`, `data/leakage_check.py`) | Yes; mutation test passes on synthetic frames and fails when a pipeline leaks | No |
-| Prequential comparison with controls (`models/experiment.py`) | Yes; detects a simulated effect, stays inconclusive when none is simulated | No |
-| State history and replay | History in memory only; **replay not built** | No |
+| Activity-conditioned Bayesian personalisation (`models/bayesian.py`, `models/model_c_cv.py`, Model C) | Yes, blueprint form; closed form verified; independent prior recomputation and leakage tests | **Yes, run on real data (Libre, 963 events): no superiority over Model B established** |
+| Forecast, observe, update lifecycle (`twin/state.py`, `twin/replay.py`) | Yes, in memory: idempotent, window-guarded, order-independent; leakage-safe lifecycle replay | Not on real participants (synthetic demonstration only: `scripts/demo_twin_lifecycle.py`) |
+| Twin insight, parameter history, what-if (`twin/insight.py`) | Yes, in memory: sensitivity at a stated activity with beta-gamma covariance, version history linked to observations, hypothetical scenarios | No (synthetic demonstration only) |
+| Uncertainty (posterior-predictive probability and interval) | Yes; probability matches Monte Carlo; shown in insight, history and what-if | Real out-of-fold 90% interval coverage is reported by the model runs (local reports) |
+| Leakage safeguards (`data/events.py`, `data/leakage_check.py`) | Yes; mutation test passes on synthetic frames and fails when a pipeline leaks | Passed on the real data (researcher-reported, 45/45 participants) |
+| Prequential comparison with controls (`models/experiment.py`) | Yes (legacy intercept form; not used for the real B-vs-C result) | No |
+| State history and replay | History and replay in memory; **no persistence, API or UI** | No |
 
 ## 5. Threats to the claim (each needs evidence, not argument)
 

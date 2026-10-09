@@ -26,6 +26,7 @@ import pandas as pd
 
 from glycotwin.config import REPO_ROOT, DatasetNotFoundError, get_dataset_root
 from glycotwin.data.groups import GroupMappingError, participant_groups
+from glycotwin.models.prior_schemes import event_table_info
 from glycotwin.models.model_a_cv import DEFAULT_THRESHOLD, run_model_a
 
 
@@ -83,6 +84,8 @@ def main(argv=None) -> int:
 
     report, oof, folds = run_model_a(events, group_of, seed=args.seed, threshold=args.threshold, n_boot=args.n_boot,
                                      channel=args.channel, event_table_name=table_path.name)
+    report["manifest"].update(event_table_info(table_path))
+    report["manifest"]["protocol_arguments"] = {"channel": args.channel, "seed": args.seed, "n_bootstrap": args.n_boot, "threshold": args.threshold}
     report_out = Path(args.report_out) if args.report_out else REPO_ROOT / "data" / "interim" / "audit_local" / f"model_a_{safe}.json"
     oof_out = Path(args.oof_out) if args.oof_out else REPO_ROOT / "data" / "processed" / f"model_a_oof_{safe}.csv"
     folds_out = Path(args.folds_out) if args.folds_out else REPO_ROOT / "data" / "interim" / "audit_local" / f"model_a_folds_{safe}.json"

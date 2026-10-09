@@ -35,6 +35,7 @@ import pandas as pd
 
 from glycotwin.features import OUTCOME_WINDOW
 from glycotwin.models import model_a_cv as ma
+from glycotwin.models import prior_schemes as ps
 from glycotwin.models.bayesian import (MIN_PARTICIPANTS_FOR_HIERARCHICAL_PRIOR, PRIOR_SOURCE_DIFFUSE, BayesianLinearState,
                                        _per_participant_ols, build_design_matrix, conjugate_update, forecast_exceeds_180)
 from glycotwin.models.experiment import paired_cluster_bootstrap
@@ -175,8 +176,16 @@ def sequential_participant(events_p: pd.DataFrame, prior: BayesianLinearState, w
 
 
 def cross_validated_sequential(events: pd.DataFrame, folds: Dict[str, int], n_splits: int = ma.N_SPLITS,
-                               window: pd.Timedelta = OUTCOME_WINDOW):
-    """Sequential Model C forecasts for every event; fold k's prior is fitted on the other folds' participants only."""
+                               window: pd.Timedelta = OUTCOME_WINDOW, prior_scheme: str = "empirical_bayes",
+                               group_of: Optional[Dict[str, str]] = None, gamma_relative_sd: Optional[float] = None):
+    """Sequential Model C forecasts for every event; fold k's prior is fitted on the other folds' participants only.
+
+    prior_scheme="empirical_bayes" (default) is the primary protocol, unchanged. prior_scheme="blueprint" builds, for each held-out participant, the
+    blueprint prior from the training fold's participants in that participant's glycaemic group (`group_of` required), with gamma centred at 0 and a
+    prior sd of `gamma_relative_sd` (one of the prespecified widths, default 0.5) x |beta| / rms(activity); see models/prior_schemes.py."""
+    prior_scheme, gamma_width = ps.validate_prior_options("C", prior_scheme, gamma_relative_sd)
+    if prior_scheme == "blueprint" and group_of is None:
+        raise ValueError("the blueprint prior needs group_of (participant -> glycaemic group)")
     ev = _check(events)
     unmapped = set(ev["participant_id"]) - set(folds)
     if unmapped:
@@ -189,16 +198,29 @@ def cross_validated_sequential(events: pd.DataFrame, folds: Dict[str, int], n_sp
             raise AssertionError("a participant is in both training and validation")
         if len(val) == 0:
             continue
-        prior, diag = fit_scale_aware_prior(train)
-        priors[k] = diag
         prev = float((train[TARGET] == 1).mean())
+        if prior_scheme == "empirical_bayes":
+            prior, diag = fit_scale_aware_prior(train)
+            priors[k] = diag
+        else:
+            train_g, fold_sums = ps.with_group(train, group_of), []
         for pid, g in val.groupby("participant_id", sort=True):
+            if prior_scheme == "blueprint":
+                if pid not in group_of:
+                    raise ValueError("a held-out participant has no glycaemic group")
+                prior, d = ps.blueprint_prior_for_participant(train_g, pid, group_of[pid], "C", gamma_width)
+                fold_sums.append(d)
             recs, traj = sequential_participant(g, prior, window)
             for r in recs:
                 r["fold"] = k
                 r["fold_train_prevalence"] = prev
             out += recs
             trajs[pid] = {"fold": k, "trajectory": traj}
+            if prior_scheme == "blueprint":
+                trajs[pid]["prior"] = ps.participant_prior_record("C", d)
+                trajs[pid]["prior_summary"] = d
+        if prior_scheme == "blueprint":
+            priors[k] = ps.fold_summary_C(fold_sums, gamma_width)
     oof = pd.DataFrame(out)
     if len(oof) != len(ev) or oof["event_id"].duplicated().any():
         raise AssertionError("sequential coverage is not exactly one forecast per event")
@@ -229,7 +251,7 @@ def _identifiable(events: pd.DataFrame) -> Dict[str, bool]:
 def personalization_summary(oof: pd.DataFrame, trajs: dict, priors: dict, events: pd.DataFrame) -> dict:
     """Aggregate evidence that beta_i and gamma_i are learned. No identifiers, no individual values."""
     last = {p: t["trajectory"][-1] for p, t in trajs.items()}
-    pri = {p: priors[t["fold"]] for p, t in trajs.items()}
+    pri = {p: t.get("prior", priors[t["fold"]]) for p, t in trajs.items()}          # per-participant prior if the blueprint scheme was used
     n_obs = [v["n_observations"] for v in last.values()]
     d_beta = np.array([last[p]["beta_mean"] - pri[p]["beta_population_mean"] for p in last])
     d_gamma = np.array([last[p]["gamma_mean"] - pri[p]["gamma_population_mean"] for p in last])
@@ -304,15 +326,19 @@ def fingerprint(events: pd.DataFrame) -> str:
 
 
 def run_model_c(events: pd.DataFrame, group_of: Dict[str, str], seed: int = 0, threshold: float = ma.DEFAULT_THRESHOLD,
-                n_boot: int = 1000, channel: str = "Libre GL", event_table_name: str = "", n_core_events: Optional[int] = None):
+                n_boot: int = 1000, channel: str = "Libre GL", event_table_name: str = "", n_core_events: Optional[int] = None,
+                prior_scheme: str = "empirical_bayes", gamma_relative_sd: Optional[float] = None):
     """Model C on activity-eligible `events`. `group_of` must cover ALL core-eligible participants (as in Models A and B), so the
     folds are identical even if a participant has no activity-eligible events. Returns (report, oof, trajectories, folds)."""
+    prior_scheme, gamma_width = ps.validate_prior_options("C", prior_scheme, gamma_relative_sd)
     ev = _check(events)
     extra = set(ev["participant_id"]) - set(group_of)
     if extra:
         raise ValueError(f"{len(extra)} participants have no glycaemic group")
     folds = ma.make_participant_folds(dict(group_of), ma.N_SPLITS, seed)
-    oof, trajs, priors = cross_validated_sequential(ev, folds)
+    oof, trajs, priors = cross_validated_sequential(ev, folds, prior_scheme=prior_scheme, group_of=dict(group_of) if prior_scheme == "blueprint" else None,
+                                                    gamma_relative_sd=gamma_width)
+    blueprint_summaries = [t["prior_summary"] for t in trajs.values() if "prior_summary" in t]
     both = ev.groupby("participant_id")[TARGET].agg(["min", "max"])
     import scipy, sklearn, xgboost  # noqa: E401
     report = {
@@ -321,8 +347,8 @@ def run_model_c(events: pd.DataFrame, group_of: Dict[str, str], seed: int = 0, t
         "manifest": {
             "model": "C: activity-conditioned personalised Bayesian carbohydrate sensitivity",
             "formulation": "rise = (beta_i + gamma_i * activity) * carbs + e, e~N(0,s2) known s2; no intercept; activity = raw mean METs over the "
-                           "4 h strictly before the meal row, un-centred; theta_i~N(mu_pop, Sigma_between) unstratified empirical-Bayes prior from training "
-                           "participants only; conjugate update after each closed outcome window; "
+                           "4 h strictly before the meal row, un-centred; theta_i~N(mu_pop, Sigma_between) prior (see `prior`: unstratified empirical Bayes from training "
+                           "participants only unless the blueprint scheme was selected); conjugate update after each closed outcome window; "
                            "P(event)=Phi((baseline+x'mu-180)/sqrt(s2+x'Sigma x))",
             "design_features": MODEL_C_DESIGN, "intercept": "none", "activity": "activity_level, raw, un-centred",
             "regularization": "scale-aware: eigenvalue floor of the effect-space (coefficient x regressor RMS) between-participant covariance at "
@@ -331,6 +357,8 @@ def run_model_c(events: pd.DataFrame, group_of: Dict[str, str], seed: int = 0, t
             "update_rule": "update with an event only after its window (t0, t0+120 min] has closed and after its own forecast",
             "population": "core-eligible AND activity-eligible events", "cgm_channel": channel, "event_table_file_name": event_table_name,
             "event_table_sha256": fingerprint(ev), "seed_for_folds": seed, "fold_assignment_sha256": ma.fold_assignment_hash(folds),
+            "prior": ps.prior_manifest("C", prior_scheme, gamma_width, blueprint_summaries if prior_scheme == "blueprint" else None),
+            "n_participants_in_folds": int(len(folds)), "threshold_for_classification_metrics": threshold, "n_bootstrap": n_boot,
             "folds_built_from": "all core-eligible participants (same function, participants and seed as Models A and B)",
             "same_folds_as_model_a_and_b": True,
             "versions": {"numpy": np.__version__, "pandas": pd.__version__, "scipy": scipy.__version__, "scikit-learn": sklearn.__version__,

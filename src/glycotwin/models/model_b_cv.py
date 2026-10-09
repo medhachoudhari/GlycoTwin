@@ -32,6 +32,7 @@ import pandas as pd
 
 from glycotwin.features import OUTCOME_WINDOW
 from glycotwin.models import model_a_cv as ma
+from glycotwin.models import prior_schemes as ps
 from glycotwin.models.bayesian import (MODEL_B_BLUEPRINT_FEATURES, BayesianLinearState, conjugate_update, fit_population_prior,
                                        forecast_exceeds_180)
 from glycotwin.models.experiment import paired_cluster_bootstrap
@@ -94,8 +95,15 @@ def sequential_participant(events_p: pd.DataFrame, prior: BayesianLinearState, w
 
 
 def cross_validated_sequential(events: pd.DataFrame, folds: Dict[str, int], n_splits: int = ma.N_SPLITS,
-                               window: pd.Timedelta = OUTCOME_WINDOW):
-    """Sequential Model B forecasts for every event; the prior of fold k is fitted on the other folds only."""
+                               window: pd.Timedelta = OUTCOME_WINDOW, prior_scheme: str = "empirical_bayes",
+                               group_of: Optional[Dict[str, str]] = None):
+    """Sequential Model B forecasts for every event; the prior of fold k is fitted on the other folds only.
+
+    prior_scheme="empirical_bayes" (default) is the primary protocol, unchanged. prior_scheme="blueprint" builds, for each held-out participant, the
+    blueprint prior from the training fold's participants in that participant's glycaemic group (`group_of` required); see models/prior_schemes.py."""
+    prior_scheme, _ = ps.validate_prior_options("B", prior_scheme, None)
+    if prior_scheme == "blueprint" and group_of is None:
+        raise ValueError("the blueprint prior needs group_of (participant -> glycaemic group)")
     ev = _check(events)
     unmapped = set(ev["participant_id"]) - set(folds)
     if unmapped:
@@ -108,19 +116,32 @@ def cross_validated_sequential(events: pd.DataFrame, folds: Dict[str, int], n_sp
             raise AssertionError("a participant is in both training and validation")
         if len(val) == 0:
             continue
-        prior = fit_population_prior(train, MODEL_B_DESIGN)
-        pm, ps = prior.coefficient(SENS)
-        priors[k] = {"prior_source": prior.prior_source, "sens_mean": pm, "sens_sd": ps,
-                     "noise_sd": float(np.sqrt(prior.noise_variance)),
-                     "n_training_events": int(len(train)), "n_training_participants": int(train["participant_id"].nunique())}
         prev = float((train[TARGET] == 1).mean())
+        if prior_scheme == "empirical_bayes":
+            prior = fit_population_prior(train, MODEL_B_DESIGN)
+            pm, psd = prior.coefficient(SENS)
+            priors[k] = {"prior_source": prior.prior_source, "sens_mean": pm, "sens_sd": psd,
+                         "noise_sd": float(np.sqrt(prior.noise_variance)),
+                         "n_training_events": int(len(train)), "n_training_participants": int(train["participant_id"].nunique())}
+        else:
+            train_g, fold_sums = ps.with_group(train, group_of), []
         for pid, g in val.groupby("participant_id", sort=True):
+            if prior_scheme == "blueprint":
+                if pid not in group_of:
+                    raise ValueError("a held-out participant has no glycaemic group")
+                prior, d = ps.blueprint_prior_for_participant(train_g, pid, group_of[pid], "B", None)
+                fold_sums.append(d)
             recs, traj = sequential_participant(g, prior, window)
             for r in recs:
                 r["fold"] = k
                 r["fold_train_prevalence"] = prev
             out += recs
             trajs[pid] = {"fold": k, "trajectory": traj}
+            if prior_scheme == "blueprint":
+                trajs[pid]["prior"] = ps.participant_prior_record("B", d)
+                trajs[pid]["prior_summary"] = d
+        if prior_scheme == "blueprint":
+            priors[k] = ps.fold_summary_B(fold_sums)
     oof = pd.DataFrame(out)
     if len(oof) != len(ev) or oof["event_id"].duplicated().any():
         raise AssertionError("sequential coverage is not exactly one forecast per event")
@@ -143,8 +164,8 @@ def personalization_summary(oof: pd.DataFrame, trajs: dict, priors: dict) -> dic
     n_obs = [t["trajectory"][-1]["n_observations"] for t in trajs.values()]
     final_m = [t["trajectory"][-1]["sens_mean"] for t in trajs.values()]
     final_sd = [t["trajectory"][-1]["sens_sd"] for t in trajs.values()]
-    prior_m = [priors[t["fold"]]["sens_mean"] for t in trajs.values()]
-    prior_sd = [priors[t["fold"]]["sens_sd"] for t in trajs.values()]
+    prior_m = [t.get("prior", priors[t["fold"]])["sens_mean"] for t in trajs.values()]       # per-participant prior if the blueprint scheme was used
+    prior_sd = [t.get("prior", priors[t["fold"]])["sens_sd"] for t in trajs.values()]
     change = np.array(final_m) - np.array(prior_m)
     ratio = np.array(final_sd) / np.array(prior_sd)
     return {
@@ -200,13 +221,14 @@ def fingerprint(events: pd.DataFrame) -> str:
 
 def run_model_b(events: pd.DataFrame, group_of: Dict[str, str], seed: int = 0, threshold: float = ma.DEFAULT_THRESHOLD,
                 n_boot: int = 1000, channel: str = "Libre GL", event_table_name: str = "",
-                fold_group_of: Optional[Dict[str, str]] = None):
+                fold_group_of: Optional[Dict[str, str]] = None, prior_scheme: str = "empirical_bayes"):
     """Model B with the same participants, events, folds (seed) and metric conventions as Model A, plus a paired
     comparison with Model A. Returns (report, oof_b, oof_a, trajectories, folds).
 
     fold_group_of (optional): participant -> group for ALL participants that define the folds. Pass it when `events` is a
     subset (e.g. the activity-eligible events used by Model C) so the folds stay identical to Models A and C even if a
     participant has no events in the subset. Default None keeps the original behaviour (folds from the participants in `events`)."""
+    prior_scheme, _ = ps.validate_prior_options("B", prior_scheme, None)
     ev = _check(events)
     if fold_group_of is None:
         folds = ma.make_participant_folds({p: group_of[p] for p in ev["participant_id"].unique()}, ma.N_SPLITS, seed)
@@ -215,7 +237,8 @@ def run_model_b(events: pd.DataFrame, group_of: Dict[str, str], seed: int = 0, t
         if missing:
             raise ValueError(f"{len(missing)} participants in the events are not in fold_group_of")
         folds = ma.make_participant_folds(dict(fold_group_of), ma.N_SPLITS, seed)
-    oof_b, trajs, priors = cross_validated_sequential(ev, folds)
+    oof_b, trajs, priors = cross_validated_sequential(ev, folds, prior_scheme=prior_scheme, group_of=group_of if prior_scheme == "blueprint" else None)
+    blueprint_summaries = [t["prior_summary"] for t in trajs.values() if "prior_summary" in t]
     oof_a = ma.cross_validated_predictions(ev, folds)
     b_metrics = ma.metric_bundle(oof_b["y"], oof_b["p"], threshold, oof_b["fold_train_prevalence"].to_numpy())
     a_metrics = ma.metric_bundle(oof_a["y"], oof_a["p"], threshold, oof_a["fold_train_prevalence"].to_numpy())
@@ -226,13 +249,15 @@ def run_model_b(events: pd.DataFrame, group_of: Dict[str, str], seed: int = 0, t
         "_status": "RESEARCH MODEL. Not clinically validated. Sequential out-of-fold forecasts only.",
         "manifest": {
             "model": "B: personalised Bayesian carbohydrate sensitivity (no activity term)",
-            "formulation": "rise = beta*carbs + e, e~N(0,s2) known s2 (no intercept); beta~N(mu_pop, tau2_between) empirical-Bayes prior "
-                           "from training participants; conjugate update after each closed outcome window; "
+            "formulation": "rise = beta*carbs + e, e~N(0,s2) known s2 (no intercept); beta~N(mu_pop, tau2_between) prior (see `prior`; empirical Bayes "
+                           "from training participants unless the blueprint scheme was selected); conjugate update after each closed outcome window; "
                            "P(event)=Phi((baseline+m*carbs-180)/sqrt(s2+carbs^2*tau2))",
             "design_features": MODEL_B_DESIGN, "intercept": "none (blueprint form, H12)", "baseline_use": "threshold conversion only (not a regression input)",
             "update_rule": "update with an event only after its window (t0, t0+120 min] has closed and after its own forecast",
             "cgm_channel": channel, "event_table_file_name": event_table_name, "event_table_sha256": fingerprint(ev),
             "seed_for_folds": seed, "fold_assignment_sha256": ma.fold_assignment_hash(folds), "same_folds_as_model_a": True,
+            "prior": ps.prior_manifest("B", prior_scheme, None, blueprint_summaries if prior_scheme == "blueprint" else None),
+            "n_participants_in_folds": int(len(folds)), "threshold_for_classification_metrics": threshold, "n_bootstrap": n_boot,
             "versions": {"numpy": np.__version__, "pandas": pd.__version__, "scipy": scipy.__version__, "scikit-learn": sklearn.__version__,
                          "xgboost": xgboost.__version__},
             **ma._git_state(),

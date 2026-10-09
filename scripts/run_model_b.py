@@ -23,6 +23,7 @@ import pandas as pd
 
 from glycotwin.config import REPO_ROOT, DatasetNotFoundError, get_dataset_root
 from glycotwin.data.groups import GroupMappingError, participant_groups
+from glycotwin.models.prior_schemes import PRIOR_SCHEMES, event_table_info
 from glycotwin.models.model_a_cv import DEFAULT_THRESHOLD
 from glycotwin.models.model_b_cv import run_model_b
 
@@ -49,6 +50,9 @@ def main(argv=None) -> int:
                     help="core-eligible (default, the original Model B run) or activity-eligible: exactly Model C's events, for the paired "
                          "B-vs-C comparison. The folds always come from ALL core-eligible participants, so they are identical to Models A and C; "
                          "outputs get an _activity_eligible suffix and never overwrite the core-eligible run.")
+    ap.add_argument("--prior-scheme", default="empirical_bayes", choices=list(PRIOR_SCHEMES),
+                    help="empirical_bayes (default, the primary protocol) or blueprint (opt-in sensitivity analysis S2: beta prior from the training "
+                         "participants in the held-out participant's glycaemic group). Outputs of a non-default scheme get a _prior-blueprint suffix.")
     args = ap.parse_args(argv)
 
     safe = args.channel.replace(" ", "_")
@@ -89,10 +93,13 @@ def main(argv=None) -> int:
     try:
         report, oof_b, oof_a, trajs, folds = run_model_b(events, group_of, seed=args.seed, threshold=args.threshold,
                                                          n_boot=args.n_boot, channel=args.channel, event_table_name=table_path.name,
-                                                         fold_group_of=group_of if activity_population else None)
+                                                         fold_group_of=group_of if activity_population else None, prior_scheme=args.prior_scheme)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    report["manifest"].update(event_table_info(table_path))
+    report["manifest"]["protocol_arguments"] = {"channel": args.channel, "population": args.population, "prior_scheme": args.prior_scheme,
+                                                "seed": args.seed, "n_bootstrap": args.n_boot}
     report["manifest"]["population"] = ("core-eligible AND activity-eligible events (Model C's population, for the paired B-vs-C comparison)"
                                         if activity_population else "core-eligible events")
     report["manifest"]["n_core_events"] = int(len(core))
@@ -103,6 +110,8 @@ def main(argv=None) -> int:
     proc = REPO_ROOT / "data" / "processed" if not args.out_dir else out_dir
     out_dir.mkdir(parents=True, exist_ok=True); proc.mkdir(parents=True, exist_ok=True)
     tag = f"{safe}_activity_eligible" if activity_population else safe                # never overwrite the core-eligible run
+    if args.prior_scheme != "empirical_bayes":
+        tag += f"_prior-{args.prior_scheme}"                                           # nor the primary (empirical-Bayes) run
     text = json.dumps(report, indent=2, default=lambda o: o.item() if hasattr(o, "item") else str(o))
     (out_dir / f"model_b_{tag}.json").write_text(text, encoding="utf-8")
     oof_b.to_csv(proc / f"model_b_sequential_forecasts_{tag}.csv", index=False)

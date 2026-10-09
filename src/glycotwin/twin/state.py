@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import Optional
 from datetime import datetime, timezone
 
 import numpy as np
@@ -50,9 +51,19 @@ class TwinState:
     model_c: BayesianLinearState
     version: int
     created_at: datetime = field(default_factory=_utcnow)
+    # Additive, optional (defaults keep every existing call working): static, non-identifying profile labels supplied by the caller
+    # (for example the glycaemic group), carried unchanged to every later version; and the explicit parent link of the version chain.
+    profile: dict = field(default_factory=dict)
+    parent_version: Optional[int] = None
 
     def carb_sensitivity_summary(self) -> dict:
-        """What the twin-state card displays: current sensitivity +/- uncertainty."""
+        """LEGACY summary kept for compatibility. Read `interpretation` before using it.
+
+        `model_c_carb_sensitivity` is the posterior of the Model C `carbs_g` COEFFICIENT, i.e. the sensitivity at activity =
+        `model_c_reference_activity` (the prior's centre). For the blueprint (un-centred) Model C that reference is 0, an
+        activity level that may lie outside the observed range, and the value is NOT comparable with Model B's sensitivity
+        or with a typical person's sensitivity. For a sensitivity at a stated activity level, with the beta-gamma covariance
+        in its uncertainty, use `glycotwin.twin.insight.twin_insight` / `effective_sensitivity`."""
         b_mean, b_std = self.model_b.coefficient("carbs_g")
         c_mean, c_std = self.model_c.coefficient("carbs_g")
         c_interact_mean, c_interact_std = self.model_c.coefficient("carbs_x_activity")
@@ -64,6 +75,12 @@ class TwinState:
             "model_b_carb_sensitivity": {"mean": b_mean, "std": b_std},
             "model_c_carb_sensitivity": {"mean": c_mean, "std": c_std},
             "model_c_activity_interaction": {"mean": c_interact_mean, "std": c_interact_std},
+            "interpretation": (
+                "LEGACY summary. model_c_carb_sensitivity is the carbs_g coefficient, i.e. the sensitivity at "
+                f"activity = {self.model_c.activity_center:g}"
+                + (" (un-centred form: activity 0 may be outside the observed range, and this value is not comparable with Model B's sensitivity). "
+                   if self.model_c.activity_center == 0.0 else " (the prior's centre). ")
+                + "Use glycotwin.twin.insight.twin_insight for a sensitivity at a stated activity level with correct uncertainty."),
         }
 
 
@@ -77,6 +94,9 @@ class ForecastRecord:
     model_c_forecast: ForecastDistribution
     meal_row: pd.Series  # the features the forecast was made from; needed to reconcile
     created_at: datetime = field(default_factory=_utcnow)
+    # Additive (default empty): forecast-time data-quality / insufficient-history assessment from twin/quality.py. It is information
+    # carried with the forecast; it never alters the probability or interval.
+    data_quality: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -86,6 +106,16 @@ class ObservationRecord:
     observed_exceeds_180: bool
     reconciled_at: datetime = field(default_factory=_utcnow)
     twin_version_after_update: int | None = None
+    observation_quality: dict = field(default_factory=dict)       # additive: how completely the outcome window was observed
+
+
+@dataclass
+class ExclusionRecord:
+    """Blueprint section 11 / 13: when the outcome window cannot be trusted (e.g. a sensor gap over 30 minutes) the meal is marked excluded
+    with a reason and the twin is NOT updated. The forecast stays on record (it was made), but it never becomes training evidence."""
+    forecast_id: str
+    reason: str
+    recorded_at: datetime = field(default_factory=_utcnow)
 
 
 class TwinStore:
@@ -97,15 +127,22 @@ class TwinStore:
         self._twin_history: dict[str, list[TwinState]] = {}
         self._forecasts: dict[str, ForecastRecord] = {}
         self._observations: dict[str, ObservationRecord] = {}
+        self._exclusions: dict[str, ExclusionRecord] = {}
 
     def initialize_twin(
-        self, participant_id: str, model_b_prior: BayesianLinearState, model_c_prior: BayesianLinearState
+        self, participant_id: str, model_b_prior: BayesianLinearState, model_c_prior: BayesianLinearState,
+        profile: Optional[dict] = None,
     ) -> TwinState:
         if participant_id in self._twin_history:
             raise ValueError(f"twin already initialized for participant {participant_id!r}")
-        state = TwinState(participant_id=participant_id, model_b=model_b_prior, model_c=model_c_prior, version=0)
+        state = TwinState(participant_id=participant_id, model_b=model_b_prior, model_c=model_c_prior, version=0,
+                          profile=dict(profile or {}), parent_version=None)
         self._twin_history[participant_id] = [state]
         return state
+
+    def participants(self) -> list[str]:
+        """Participant labels that have a twin, sorted (read-only; supports the patient-list view)."""
+        return sorted(self._twin_history)
 
     def current_twin(self, participant_id: str) -> TwinState:
         history = self._twin_history.get(participant_id)
@@ -131,12 +168,37 @@ class TwinStore:
     def is_reconciled(self, forecast_id: str) -> bool:
         return forecast_id in self._observations
 
+    def is_excluded(self, forecast_id: str) -> bool:
+        return forecast_id in self._exclusions
+
+    def save_exclusion(self, record: ExclusionRecord) -> None:
+        self._exclusions[record.forecast_id] = record
+
+    def exclusions(self, participant_id: str) -> list[ExclusionRecord]:
+        mine = {fid for fid, f in self._forecasts.items() if f.participant_id == participant_id}
+        return [e for fid, e in self._exclusions.items() if fid in mine]
+
+    def _snapshot(self):
+        """Shallow copy of the store's contents (stored versions and records are never mutated, so this is a faithful restore point)."""
+        return ({k: list(v) for k, v in self._twin_history.items()}, dict(self._forecasts), dict(self._observations), dict(self._exclusions))
+
+    def _restore(self, snapshot) -> None:
+        history, forecasts, observations, exclusions = snapshot
+        self._twin_history = {k: list(v) for k, v in history.items()}
+        self._forecasts, self._observations, self._exclusions = dict(forecasts), dict(observations), dict(exclusions)
+
+    def reconciliation_log(self, participant_id: str) -> list[ObservationRecord]:
+        """Observations already reconciled for this participant, oldest twin version first (read-only view)."""
+        mine = {fid for fid, f in self._forecasts.items() if f.participant_id == participant_id}
+        obs = [o for fid, o in self._observations.items() if fid in mine]
+        return sorted(obs, key=lambda o: (o.twin_version_after_update or 0))
+
     def pending_forecasts(self, participant_id: str) -> list[ForecastRecord]:
         """Forecasts made but not yet reconciled - used by the replay engine."""
         return [
             f
             for f in self._forecasts.values()
-            if f.participant_id == participant_id and f.forecast_id not in self._observations
+            if f.participant_id == participant_id and f.forecast_id not in self._observations and f.forecast_id not in self._exclusions
         ]
 
 
@@ -149,6 +211,7 @@ def forecast_meal(store: TwinStore, participant_id: str, meal_row: pd.Series) ->
     b_forecast = forecast_exceeds_180(twin.model_b, meal_row, baseline)
     c_forecast = forecast_exceeds_180(twin.model_c, meal_row, baseline)
 
+    from glycotwin.twin.quality import assess_forecast_quality            # local import: quality.py has no dependency on this module
     record = ForecastRecord(
         forecast_id=str(uuid.uuid4()),
         participant_id=participant_id,
@@ -157,9 +220,17 @@ def forecast_meal(store: TwinStore, participant_id: str, meal_row: pd.Series) ->
         model_b_forecast=b_forecast,
         model_c_forecast=c_forecast,
         meal_row=meal_row,
+        data_quality=assess_forecast_quality(meal_row, int(twin.model_c.n_observations_used)),
     )
     store.save_forecast(record)
     return record
+
+
+def _observation_quality(meal_row: pd.Series) -> dict:
+    from glycotwin.twin.quality import assess_observation_quality
+    wc = meal_row["window_completeness"] if "window_completeness" in meal_row.index else None
+    flag = meal_row["data_quality_flag"] if "data_quality_flag" in meal_row.index else None
+    return assess_observation_quality(None if wc is None or pd.isna(wc) else wc, None if flag is None or pd.isna(flag) else str(flag))
 
 
 def reconcile_forecast(
@@ -183,6 +254,8 @@ def reconcile_forecast(
     record = store.get_forecast(forecast_id)
     if store.is_reconciled(forecast_id):
         raise ValueError(f"forecast {forecast_id!r} was already reconciled")
+    if store.is_excluded(forecast_id):
+        raise ValueError(f"forecast {forecast_id!r} was marked excluded; an excluded meal never updates the twin")
     if observed_through is not None and observed_through < record.meal_time + OUTCOME_WINDOW:
         raise ValueError(
             f"observation window not complete: need CGM through meal_time + {OUTCOME_WINDOW}, "
@@ -206,6 +279,8 @@ def reconcile_forecast(
         model_b=conjugate_update(twin.model_b, observation_df),
         model_c=conjugate_update(twin.model_c, observation_df),
         version=new_version,
+        profile=dict(twin.profile),
+        parent_version=twin.version,
     )
     store._save_new_version(new_state)
     store.save_observation(
@@ -214,6 +289,25 @@ def reconcile_forecast(
             observed_peak_rise=observed_peak_rise,
             observed_exceeds_180=bool(observed_exceeds_180),
             twin_version_after_update=new_version,
+            observation_quality=_observation_quality(record.meal_row),
         )
     )
     return new_state
+
+
+def exclude_forecast(store: TwinStore, forecast_id: str, reason: str, observed_through: pd.Timestamp | None = None) -> ExclusionRecord:
+    """Blueprint decision branch "Sensor gap over 30 min? Yes -> Mark excluded, no update": record that this forecast's outcome is untrustworthy
+    and leave the twin exactly as it is (no new version, no parameter change). Same guards as reconciliation: once only, never after a
+    reconcile, and (if `observed_through` is given) only once the outcome window has closed."""
+    record = store.get_forecast(forecast_id)
+    if not str(reason).strip():
+        raise ValueError("an exclusion needs a reason")
+    if store.is_reconciled(forecast_id):
+        raise ValueError(f"forecast {forecast_id!r} was already reconciled and cannot be excluded")
+    if store.is_excluded(forecast_id):
+        raise ValueError(f"forecast {forecast_id!r} was already excluded")
+    if observed_through is not None and observed_through < record.meal_time + OUTCOME_WINDOW:
+        raise ValueError(f"observation window not complete: need CGM through meal_time + {OUTCOME_WINDOW}, have data through {observed_through}")
+    ex = ExclusionRecord(forecast_id=forecast_id, reason=str(reason).strip())
+    store.save_exclusion(ex)
+    return ex

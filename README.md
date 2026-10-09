@@ -39,6 +39,18 @@ src/glycotwin/data/leakage_check.py  the blueprint's leakage test over real pipe
 src/glycotwin/features.py        event schema validation, leakage-safe chronological split
 src/glycotwin/models/            baseline.py (A), bayesian.py (B/C), evaluation.py, experiment.py (harness)
 src/glycotwin/twin/state.py      versioned TwinState, forecast/reconcile
+src/glycotwin/twin/insight.py    twin insight, parameter history, what-if (in memory, read-only)
+src/glycotwin/twin/replay.py     leakage-safe forecast -> reconcile -> update replay (in memory)
+src/glycotwin/twin/demo.py       SYNTHETIC labelled demonstration (scripts/demo_twin_lifecycle.py)
+src/glycotwin/twin/adapter.py    event table -> twin: leakage-safe prior (participant excluded), validated event feed
+src/glycotwin/models/model_bc_compare.py  matched paired B-vs-C comparison (refuses unmatched inputs; scripts/compare_models_b_c.py)
+src/glycotwin/models/reliability_svg.py   dependency-free reliability diagram (aggregate bins)
+scripts/replay_participant.py    replay one participant through the in-memory twin (counts only on screen)
+src/glycotwin/twin/state_view.py  the blueprint's formal TwinState composed from the store (unavailable parts listed, not invented)
+src/glycotwin/twin/quality.py    forecast-time data-quality / insufficient-history warnings (flag only; probabilities and intervals are never altered)
+src/glycotwin/models/activity_strata.py   per-participant active vs sedentary definition (docs/activity_definition.md)
+src/glycotwin/models/blueprint_prior.py   opt-in blueprint-form prior: stratified beta, gamma centred at 0 (docs/blueprint_prior.md)
+docs/BLUEPRINT_CONFORMANCE.md    every blueprint requirement vs code, with status and validation level; docs/ARCHITECTURE.md, docs/model_card.md
 scripts/build_event_table.py     one command: event counts, exclusions, schema groups (aggregate output)
 scripts/check_leakage_on_data.py the leakage unit test on real participant files
 scripts/run_experiment.py        prequential A/B/C experiment with controls, clustered CIs, manifest

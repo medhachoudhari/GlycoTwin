@@ -50,3 +50,16 @@ class PopulationBaselineModel:
             raise RuntimeError("call fit() before predict_proba()")
         X = df[BASELINE_FEATURE_COLUMNS].to_numpy(dtype=float)
         return self._model.predict_proba(X)[:, 1]
+
+    def contributions(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Per-feature additive contributions to the log-odds (TreeSHAP computed by XGBoost itself, `pred_contribs`), plus a `bias` column.
+        Exact for tree ensembles; no extra package. Row sums equal the model's log-odds. Blueprint Part 14/18: SHAP is applied to the
+        population baseline (Model A) only; Models B and C are explained by their own additive terms (`twin.insight.explain_forecast`)."""
+        if not self._fitted:
+            raise RuntimeError("call fit() before contributions()")
+        missing = [c for c in BASELINE_FEATURE_COLUMNS if c not in df.columns]
+        if missing:
+            raise ValueError(f"missing feature columns: {missing}")
+        X = xgb.DMatrix(df[BASELINE_FEATURE_COLUMNS].to_numpy(dtype=float), feature_names=BASELINE_FEATURE_COLUMNS)
+        raw = self._model.get_booster().predict(X, pred_contribs=True)
+        return pd.DataFrame(raw, columns=BASELINE_FEATURE_COLUMNS + ["bias"], index=df.index)
