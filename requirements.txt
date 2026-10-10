@@ -5,7 +5,12 @@ numpy>=1.24
 scipy>=1.11
 scikit-learn>=1.3
 xgboost>=2.0
+fastapi>=0.110
+pydantic>=2.5
+sqlalchemy>=2.0
+uvicorn>=0.29
+httpx>=0.27
 pytest>=7.4
 
-# Not yet added (added with their phases, never earlier): fastapi, pydantic, sqlalchemy.
-# The React frontend has its own package.json.
+# Backend phase: FastAPI + SQLite (SQLAlchemy) + Pydantic; httpx is needed by FastAPI's TestClient.
+# The React frontend (later phase) will have its own package.json.

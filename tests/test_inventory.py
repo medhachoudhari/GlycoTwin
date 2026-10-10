@@ -3,8 +3,9 @@
 Nothing here is real CGMacros data: all values are clearly fabricated and exist
 only to exercise the scanning/profiling logic.
 """
-
 from __future__ import annotations
+
+import re
 
 import json
 
@@ -116,6 +117,9 @@ def test_run_audit_never_prints_row_values_into_reports(tmp_path):
 
     for f in [output_dir / "dataset_inventory_summary.json", output_dir / "dataset_inventory_summary.md"]:
         text = f.read_text(encoding="utf-8")
+        # the report's own generation time (ISO timestamp with microseconds) can contain any digit run, e.g. "...10.401105";
+        # it is not a row value, so it is removed before searching (this was the intermittent failure E-03)
+        text = re.sub(r'("generated_at_utc": "|Generated: )[^"\n]*', r"\1<generated-at>", text)   # only the report's own timestamp
         assert "105" not in text  # a glucose value from the fixture
         assert "2000-01-01" not in text  # a timestamp value from the fixture
 

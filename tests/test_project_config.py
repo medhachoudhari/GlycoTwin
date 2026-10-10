@@ -38,6 +38,12 @@ def test_every_third_party_import_is_declared_in_pyproject_and_requirements():
     assert "pytest" in _declared(req)
 
 
-def test_no_backend_or_frontend_dependency_is_declared_before_its_phase():
+def test_backend_phase_dependencies_are_declared_and_no_frontend_or_extra_database_is():
     py = (ROOT / "pyproject.toml").read_text(encoding="utf-8").lower()
-    assert not any(x in py for x in ("fastapi", "sqlalchemy", "pydantic"))
+    req = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
+    for dep in ("fastapi", "sqlalchemy", "pydantic", "uvicorn"):
+        assert dep in py and dep in req, dep
+    assert "httpx" in req                                                   # FastAPI's TestClient
+    declared = _declared(py[py.index("dependencies = ["):]) | _declared(req)
+    for not_wanted in ("psycopg2", "psycopg", "asyncpg", "pymysql", "mysqlclient", "celery", "redis"):
+        assert not_wanted not in declared, not_wanted

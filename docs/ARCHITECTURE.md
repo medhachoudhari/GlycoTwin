@@ -1,6 +1,6 @@
 # Architecture (as implemented)
 
-In-memory research prototype. No database, no web framework, no frontend. Not clinically validated; no medical advice.
+Research prototype: in-memory research engine plus a FastAPI + SQLite backend (`docs/BACKEND.md`); no frontend yet. Not clinically validated; no medical advice.
 
 ```
 raw CSVs (local, never in Git)

@@ -178,7 +178,7 @@ Legend for the last column: **AI** = I can complete it; **HUMAN** = needs you; *
 |---|---|---|---|
 | E-01 | Git reconciliation preserving all work | IMPLEMENTED locally | `b570d9a` fast-forwarded; local-only work in layered commits; publication pending your approval (H5) |
 | E-02 | Declared dependencies match imports | VERIFIED | `tests/test_project_config.py` (2) |
-| E-03 | Intermittent test failure | OPEN | One failure in one full run before this phase (test not captured). Since then 52 full runs without an unexplained failure (14 with random hash seeds, 8 under CPU load, 30 in the background hunt; one hunt failure was my own mid-edit state). Cause unidentified; do not call the suite reliably green until understood |
+| E-03 | Intermittent test failure | RESOLVED (cause found) | `tests/test_inventory.py::test_run_audit_never_prints_row_values_into_reports` searched the whole report for the fixture value "105", and the report's own generation timestamp (microseconds) occasionally contained "105" (seen in a full run during the backend phase: `...:38:10.401105+00:00`). The test now removes only the report's own timestamp before searching; the privacy check itself is unchanged |
 | E-04 | Safety exclusions (no dosing, medication, diagnosis, avatar, chatbot) | PARTIAL | none of these exist in the code; the API does not exist yet, so the endpoint list cannot be audited |
 
 ## 4. Unresolved blockers, by severity
@@ -312,3 +312,13 @@ Only items that automation cannot do. Batched so you can answer once.
 | When | What | Result |
 |---|---|---|
 | after the runner prior option | `scripts/compare_priors.py` + `src/glycotwin/models/prior_compare.py` (four-arm paired comparison with a common participant-clustered bootstrap, five contrasts, strict integrity and manifest refusals, prespecified adoption screen documented in `docs/prior_comparison.md`); runbook section 3b and verification steps (settings sidecar, same event ids, existing-output hashes before/after, fresh-folder guard) | **695 passed** (`python -m pytest -p no:cacheprovider -q`, 6.5 min; 648 before; 47 new tests); 17 injected faults in the new code, one survivor (no participant resampling) pinned by a test and then caught; all tests SYNTHETIC; **no real-data run**; the existing B-vs-C tool, the primary protocol and existing results are untouched; the blueprint prior stays opt-in |
+
+### Verification entry: FastAPI + SQLite research backend (uncommitted)
+| When | What | Result |
+|---|---|---|
+| backend phase | `src/glycotwin/backend/` (models, SqlTwinStore over the unchanged engine, services with one transaction per operation, routers, schemas, priors), `scripts/init_db.py`, `scripts/export_prior.py`, `docs/BACKEND.md`, dependency updates | **744 passed** (`python -m pytest -p no:cacheprovider -q`; 695 before; 49 backend tests); uvicorn smoke test: `/health` ok, `/docs` 200, nine API paths; 13 injected backend faults, 1 first survived (store scope) and was pinned by a test; E-03 cause found and the test fixed; all tests SYNTHETIC; no real-data run |
+
+### Verification entry: demo activity-scale correction (uncommitted)
+| When | What | Result |
+|---|---|---|
+| before the backend commit | the synthetic demo prior (fitted on simulated 0-1 activity) now rejects activity outside [0, 1]; prior-file twins flag activity outside their recorded range; `export_prior.py` records the aggregate range; init/re-init verified never to change rows | research equations, Model C scaling and real-data results unchanged; **760 passed** (744 before; 16 new backend tests); 7 injected faults all caught; all tests SYNTHETIC |

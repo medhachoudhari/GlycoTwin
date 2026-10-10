@@ -81,6 +81,23 @@ pytest
 ```
 `requirements.txt` and `pyproject.toml` are kept in sync by `tests/test_project_config.py`.
 
+## Research backend (FastAPI + SQLite)
+Experimental research API around the existing twin engine; not clinically validated, no diagnosis or treatment advice (every response says so).
+Architecture: `docs/BACKEND.md`. The database is a local SQLite file under `data\interim` (git-ignored); no other database service is needed.
+```powershell
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt; pip install -e .
+# optional: choose the database file and the folder of aggregate prior artifacts (defaults shown)
+$env:GLYCOTWIN_DATABASE_URL = "sqlite:///data/interim/glycotwin_backend.sqlite3"
+$env:GLYCOTWIN_PRIOR_DIR    = "data\interim\priors"
+python scripts\init_db.py --demo                          # create tables (never drops data) + a labelled SYNTHETIC demo twin
+uvicorn glycotwin.backend.app:app --reload --port 8000     # then open http://127.0.0.1:8000/docs
+pytest tests\test_backend.py                               # backend tests (synthetic data only)
+```
+Real participant data is never loaded automatically. A live twin's prior comes from the synthetic demo population or from an aggregate prior
+artifact written offline: `python scripts\export_prior.py --event-table <local table> --name my_prior.json --live-person-not-in-population`
+(or `--exclude-participant <id>` when the live person is part of the research data).
+
 ## Running on the real dataset
 Keep CGMacros outside Git and point to it (no default path is assumed):
 ```powershell
