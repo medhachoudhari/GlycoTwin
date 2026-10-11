@@ -1,14 +1,14 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { ApiError } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { OrganicForm } from "../components/organic/OrganicForm";
 import { Disclaimer } from "../components/ui/Disclaimer";
 import { appHref, type AuthMode } from "../lib/router";
 
 /**
- * Sign In and Create Account screens (visual design of the approved concept).
- *
- * IMPORTANT, and stated on screen: the backend has NO authentication (no users, passwords, sessions or per-user data ownership; see docs/BACKEND.md "Not included").
- * These forms therefore validate input locally and then say plainly that sign-in / account creation is not available. They send nothing over the network,
- * never show a signed-in or account-created state, and the demonstration path opens the existing workspace without pretending to authenticate anyone.
+ * Sign In and Create Account screens, connected to the real backend (POST /auth/register, /auth/login, /auth/guest).
+ * Success is only shown after the backend confirms it: the user object comes back from the API and the session lives in an HttpOnly cookie.
+ * The password is sent once over the same-origin proxy and is cleared from the form afterwards; nothing secret is written to browser storage.
  */
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -19,6 +19,8 @@ export function validateAuth(mode: AuthMode, v: { name: string; email: string; p
   if (!v.email.trim()) e.email = "Enter your email address.";
   else if (!EMAIL.test(v.email.trim())) e.email = "Enter a valid email address, such as name@example.com.";
   if (!v.password) e.password = mode === "login" ? "Enter your password." : "Choose a password.";
+  else if (mode === "register" && v.password.length < 10) e.password = "Use at least 10 characters.";
+  else if (mode === "register" && v.password.length > 128) e.password = "Use at most 128 characters.";
   if (mode === "register") {
     if (!v.confirm) e.confirm = "Confirm your password.";
     else if (v.confirm !== v.password) e.confirm = "The two passwords do not match.";
@@ -63,9 +65,11 @@ function AuthField(p: { label: string; icon: string; type: string; value: string
 
 export function Auth({ mode }: { mode: AuthMode }) {
   const login = mode === "login";
+  const auth = useAuth();
   const [v, setV] = useState({ name: "", email: "", password: "", confirm: "", ack: false });
   const [errors, setErrors] = useState<AuthErrors>({});
-  const [unavailable, setUnavailable] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"submit" | "guest" | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const set = <K extends keyof typeof v>(k: K) => (val: (typeof v)[K]) => setV((s) => ({ ...s, [k]: val }));
 
@@ -75,28 +79,57 @@ export function Auth({ mode }: { mode: AuthMode }) {
     window.scrollTo({ top: 0 });
     return () => { document.title = prev; };
   }, [login]);
-  useEffect(() => { setErrors({}); setUnavailable(false); setV({ name: "", email: "", password: "", confirm: "", ack: false }); }, [mode]);
+  useEffect(() => { setErrors({}); setFormError(null); setV({ name: "", email: "", password: "", confirm: "", ack: false }); }, [mode]);
 
-  const submit = (ev: FormEvent) => {
+  /** Turn an API failure into text next to the right field, or a message above the buttons. */
+  const explain = (e: unknown): void => {
+    const err = e instanceof ApiError ? e : new ApiError("server", (e as Error).message);
+    if (err.kind === "unauthorized") setFormError("Incorrect email or password.");
+    else if (err.kind === "conflict") setErrors({ email: "An account with this email already exists. Try signing in instead." });
+    else if (err.kind === "validation") {
+      const m = err.message;
+      if (/password/i.test(m)) setErrors({ password: m.replace(/^password:\s*/i, "").replace(/^Value error,\s*/i, "") });
+      else if (/email/i.test(m)) setErrors({ email: m.replace(/^email:\s*/i, "").replace(/^Value error,\s*/i, "") });
+      else setFormError(m);
+    } else if (err.kind === "rate_limited") setFormError(`Too many attempts. Please wait${err.retryAfter ? ` about ${Math.ceil(err.retryAfter / 60)} minute(s)` : " a few minutes"} and try again.`);
+    else setFormError(err.message);
+  };
+
+  const submit = async (ev: FormEvent) => {
     ev.preventDefault();
+    if (busy) return;
     const e = validateAuth(mode, v);
     setErrors(e);
-    setUnavailable(false);
+    setFormError(null);
     if (Object.keys(e).length) {
       // move focus to the first field with a problem so keyboard and screen-reader users land on it
       requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
       return;
     }
-    // No network call: there is no account system to talk to. Do not keep the typed password around.
-    setV((s) => ({ ...s, password: "", confirm: "" }));
-    setUnavailable(true);
+    setBusy("submit");
+    try {
+      if (login) await auth.login({ email: v.email.trim(), password: v.password });
+      else await auth.register({ name: v.name.trim(), email: v.email.trim(), password: v.password });
+      setV((s) => ({ ...s, password: "", confirm: "" }));
+      window.location.hash = appHref("home");                          // only after the backend confirmed the account / session
+    } catch (err) {
+      setV((s) => ({ ...s, password: "", confirm: "" }));              // never keep a typed password after a failed attempt either
+      explain(err);
+      requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+    } finally { setBusy(null); }
+  };
+
+  const startGuest = async () => {
+    if (busy) return;
+    setBusy("guest"); setFormError(null); setErrors({});
+    try { await auth.guest(); window.location.hash = appHref("home"); } catch (err) { explain(err); } finally { setBusy(null); }
   };
 
   const demo = (
     <>
       <div className="a-or" aria-hidden="true"><span>or</span></div>
-      <a className="btn a-demo" href={appHref("home")}><Icon d={ICON.flask} />Continue as demo</a>
-      <p className="a-demo-note">Demonstration mode opens the research workspace <strong>without an account</strong>. Nothing is tied to you, and twins are not private to a user.</p>
+      <button type="button" className="btn a-demo" onClick={() => void startGuest()} disabled={busy !== null} aria-busy={busy === "guest" || undefined}><Icon d={ICON.flask} />{busy === "guest" ? "Starting demo…" : "Continue as demo"}</button>
+      <p className="a-demo-note">Demo mode creates a <strong>temporary guest account</strong>. Its twins belong only to that guest and are never visible to any other account, but you cannot sign back in to it later. Do not enter personal health data.</p>
     </>
   );
 
@@ -121,12 +154,12 @@ export function Auth({ mode }: { mode: AuthMode }) {
         <section className="auth-panel" aria-labelledby="panel-title">
           <h2 id="panel-title" className="display">{login ? "Sign in" : "Create account"}</h2>
           <p className="a-sub">{login ? "Access your GlycoTwin account" : "Join GlycoTwin and start modelling."}</p>
-          <p className="a-preview" role="note"><span className="pill unc">Preview</span> Accounts are not available yet: this research prototype has no account system, so nothing you type here is sent or stored.</p>
+          {auth.notice && <p className="a-unavail" role="status">{auth.notice}</p>}
 
           <form ref={formRef} onSubmit={submit} noValidate aria-label={login ? "Sign in form" : "Create account form"}>
             {!login && <AuthField label="Full name" icon={ICON.user} type="text" value={v.name} onChange={set("name")} error={errors.name} autoComplete="name" placeholder="Your name" />}
             <AuthField label="Email address" icon={ICON.mail} type="email" value={v.email} onChange={set("email")} error={errors.email} autoComplete="email" placeholder="you@example.com" />
-            <AuthField label="Password" icon={ICON.lock} type="password" toggle value={v.password} onChange={set("password")} error={errors.password} autoComplete={login ? "current-password" : "new-password"} placeholder={login ? "Enter your password" : "Create a password"} />
+            <AuthField label="Password" icon={ICON.lock} type="password" toggle value={v.password} onChange={set("password")} error={errors.password} autoComplete={login ? "current-password" : "new-password"} placeholder={login ? "Enter your password" : "At least 10 characters"} />
             {!login && <AuthField label="Confirm password" icon={ICON.lock} type="password" toggle value={v.confirm} onChange={set("confirm")} error={errors.confirm} autoComplete="new-password" placeholder="Confirm your password" />}
             {!login && (
               <div className="a-check">
@@ -135,14 +168,10 @@ export function Auth({ mode }: { mode: AuthMode }) {
                 {errors.ack && <p className="a-err" id="ack-e">{errors.ack}</p>}
               </div>
             )}
-            <button className="btn primary a-submit" type="submit">{login ? "Sign in" : "Create account"} <span aria-hidden="true">→</span></button>
+            <button className="btn primary a-submit" type="submit" disabled={busy !== null} aria-busy={busy === "submit" || undefined}>{busy === "submit" ? <><span className="spinner" aria-hidden="true" />{login ? "Signing in…" : "Creating account…"}</> : <>{login ? "Sign in" : "Create account"} <span aria-hidden="true">→</span></>}</button>
           </form>
 
-          <div className="a-status" role="status" aria-live="polite">
-            {unavailable && (
-              <p className="a-unavail"><strong>{login ? "Sign-in isn’t available yet." : "Account creation isn’t available yet."}</strong> This prototype has no account system, so nothing was sent or saved and you are <strong>not</strong> {login ? "signed in" : "registered"}. Use demonstration mode below to explore the workspace.</p>
-            )}
-          </div>
+          <div className="a-status" role="alert" aria-live="assertive">{formError && <p className="a-formerr">{formError}</p>}</div>
 
           {demo}
           <p className="a-switch">{login ? <>Don’t have an account? <a href="#/register">Create one</a></> : <>Already have an account? <a href="#/login">Sign in</a></>}</p>

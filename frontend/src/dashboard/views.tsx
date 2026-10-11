@@ -4,23 +4,27 @@ import type { Forecast, Sensitivity } from "../api/types";
 import { Disclaimer } from "../components/ui/Disclaimer";
 import { Field } from "../components/ui/Field";
 import { EmptyState, ForecastStatusPill, Notice, Pill, Spinner } from "../components/ui/Status";
+import { useAuth } from "../auth/AuthContext";
 import { API_BASE_URL } from "../lib/config";
 import { fmt, pct, shortId, utcLabel } from "../lib/format";
 import { appHref } from "../lib/router";
-import { CreateTwinForm, MealForm, ObservationForm, OpenTwinForm, supportedActivityRange } from "./forms";
+import { CreateTwinForm, MealForm, ObservationForm, supportedActivityRange } from "./forms";
 import { ExplanationPanel, ForecastNumbers, ForecastTable, ParamEvolution, ParamTable, QualityNotices, SensitivityChart, Stat, TwinHeader, WhatIfPanel } from "./panels";
 import { ResponseChart, type ModelChoice } from "./ResponseChart";
 import { observedPeakFor, useWorkspace } from "./workspace";
 
 function NoTwin({ why }: { why?: string }) {
   const ws = useWorkspace();
-  if (ws.busy.load) return <Spinner label="Loading twin" />;
+  if (ws.busy.load || (ws.busy.twins && !ws.twinsLoaded)) return <Spinner label="Loading your twins" />;
   return (
     <div className="stack">
+      {ws.twinsError && <Notice tone="err" title="Could not load your twins">{ws.twinsError.message} <button className="btn small" onClick={() => void ws.reloadTwins()}>Try again</button></Notice>}
       {ws.loadError && <Notice tone="err" title={ws.loadError.kind === "not_found" ? "Twin not found" : "Could not load the twin"}>{ws.loadError.message}</Notice>}
-      <EmptyState title="No twin selected" action={<a className="btn primary" href={appHref("settings")}>Create or open a twin</a>}>
-        {why ?? "A twin is a personal posterior over how this person's glucose rises after carbohydrate. Create one (a synthetic demonstration twin needs no personal data) or open an existing twin by id."}
-      </EmptyState>
+      {!ws.twinsError && (
+        <EmptyState title={ws.twins.length ? "No twin selected" : "You don't have a twin yet"} action={<a className="btn primary" href={appHref("settings")}>{ws.twins.length ? "Choose a twin" : "Create your first twin"}</a>}>
+          {why ?? "A twin is a personal posterior over how this person's glucose rises after carbohydrate. Create one (a synthetic demonstration twin needs no personal data). Only you can see the twins you create."}
+        </EmptyState>
+      )}
     </div>
   );
 }
@@ -206,19 +210,28 @@ export function InsightsView() {
 
 export function SettingsView() {
   const ws = useWorkspace();
+  const { user, logout } = useAuth();
   return (
     <div className="stack">
+      <section className="panel" aria-labelledby="ac-h"><h3 id="ac-h" className="display">Account</h3>
+        {user && (
+          <dl className="kv"><dt>Name</dt><dd>{user.name}</dd>
+            <dt>{user.is_guest ? "Account type" : "Email"}</dt><dd>{user.is_guest ? <Pill tone="unc">Temporary guest account</Pill> : user.email}</dd></dl>
+        )}
+        {user?.is_guest && <p className="small">This is a temporary guest account used for demonstration. Its twins belong only to it and cannot be seen by any other account, but you cannot sign in to it again later. <a href="#/register">Create a real account</a> to keep your history.</p>}
+        <div className="actions"><button className="btn" onClick={() => { void logout().then(() => window.location.replace("#/login")); }}>Log out</button></div></section>
       <div className="split">
         <section className="panel" aria-labelledby="c1-h"><h3 id="c1-h" className="display">Create a twin</h3><CreateTwinForm />
           {ws.lastAction?.kind === "create" && <Notice tone={ws.lastAction.ok ? "ok" : "err"}>{ws.lastAction.message}</Notice>}</section>
-        <section className="panel" aria-labelledby="c2-h"><h3 id="c2-h" className="display">Open an existing twin</h3><OpenTwinForm />
-          <p className="small">The backend has no endpoint that lists twins, so this browser remembers the ones you created or opened. Clearing site data forgets the list, not the twins.</p></section>
+        <section className="panel" aria-labelledby="rg-h"><h3 id="rg-h" className="display">My twins</h3>
+          {ws.busy.twins && !ws.twinsLoaded ? <Spinner label="Loading your twins" />
+            : ws.twinsError ? <Notice tone="err" title="Could not load your twins">{ws.twinsError.message} <button className="btn small" onClick={() => void ws.reloadTwins()}>Try again</button></Notice>
+              : ws.twins.length ? <ul className="plain">{ws.twins.map((t) => (
+                <li key={t.twin_id} className="apply-row"><span>{t.label} <span className="mono small">v{t.current_version} · {shortId(t.twin_id)}</span>{t.is_synthetic && <Pill tone="unc">Synthetic prior</Pill>}{t.twin_id === ws.activeId && <Pill tone="ok">Open</Pill>}</span>
+                  <span className="actions"><button className="btn small" onClick={() => ws.selectTwin(t.twin_id)} disabled={t.twin_id === ws.activeId} aria-label={`Open ${t.label}`}>Open</button></span></li>))}</ul>
+                : <p className="small muted">You have no twins yet. Create one with the form.</p>}
+          <p className="small">These are your twins only, saved in your account. No other account can see them.</p></section>
       </div>
-      <section className="panel" aria-labelledby="rg-h"><h3 id="rg-h" className="display">Twins in this browser</h3>
-        {ws.registry.length ? <ul className="plain">{ws.registry.map((e) => (
-          <li key={e.id} className="apply-row"><span>{e.label} <span className="mono small">{shortId(e.id)}</span>{e.id === ws.activeId && <Pill tone="ok">Active</Pill>}</span>
-            <span className="actions"><button className="btn small" onClick={() => ws.selectTwin(e.id)} disabled={e.id === ws.activeId}>Use</button><button className="btn small" onClick={() => ws.forgetTwin(e.id)} aria-label={`Forget ${e.label} in this browser`}>Forget</button></span></li>))}</ul>
-          : <p className="small muted">None yet.</p>}</section>
       <section className="panel" aria-labelledby="bk-h"><h3 id="bk-h" className="display">Backend</h3>
         <dl className="kv"><dt>API base URL</dt><dd className="mono">{API_BASE_URL}</dd>
           <dt>Status</dt><dd>{ws.health ? <Pill tone={ws.health.status === "ok" ? "ok" : "warn"}>{ws.health.status}</Pill> : ws.healthError ? <Pill tone="err">unreachable</Pill> : "checking…"}</dd>

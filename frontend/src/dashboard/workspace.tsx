@@ -1,20 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, ApiError } from "../api/client";
 import type * as T from "../api/types";
-import { isTwinId, loadActive, loadRegistry, saveActive, saveRegistry, upsert, type RegistryEntry } from "../lib/twinRegistry";
+import { useAuth } from "../auth/AuthContext";
+import { loadActive, saveActive } from "../lib/twinRegistry";
 
 export interface ActionResult { kind: "forecast" | "observe" | "reconcile" | "create" | "whatif"; ok: boolean; message: string; at: number }
-type Busy = Partial<Record<"load" | "create" | "forecast" | "observe" | "reconcile" | "whatif", boolean>>;
+type Busy = Partial<Record<"load" | "create" | "forecast" | "observe" | "reconcile" | "whatif" | "twins", boolean>>;
 
 export interface Workspace {
   health: T.Health | null; healthError: string | null;
-  registry: RegistryEntry[]; activeId: string | null;
+  /** The signed-in user's own twins (GET /twins). Never anyone else's. */
+  twins: T.TwinSummary[]; twinsLoaded: boolean; twinsError: ApiError | null; reloadTwins: () => Promise<void>;
+  activeId: string | null;
   twin: T.Twin | null; forecasts: T.Forecast[]; history: T.History | null; recon: T.ReconciliationView | null;
   observations: Record<string, T.Observation>; lastReconciliation: T.Reconciliation | null;
   selectedForecastId: string | null; selectedVersion: number | null;
   busy: Busy; loadError: ApiError | null; lastAction: ActionResult | null; announce: string;
   selectForecast: (id: string | null) => void; selectVersion: (v: number | null) => void;
-  selectTwin: (id: string) => void; forgetTwin: (id: string) => void; openTwinById: (id: string) => Promise<void>; refresh: () => Promise<void>;
+  selectTwin: (id: string) => void; refresh: () => Promise<void>;
   createTwin: (b: T.CreateTwinBody) => Promise<boolean>;
   requestForecast: (b: T.ForecastBody) => Promise<T.Forecast | null>;
   submitObservation: (b: T.ObserveBody) => Promise<T.Observation | null>;
@@ -27,8 +30,12 @@ export const useWorkspace = (): Workspace => { const w = useContext(Ctx); if (!w
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [health, setHealth] = useState<T.Health | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
-  const [registry, setRegistry] = useState<RegistryEntry[]>(() => loadRegistry());
-  const [activeId, setActiveId] = useState<string | null>(() => loadActive());
+  const { user } = useAuth();
+  const userId = user?.id ?? "";
+  const [twins, setTwins] = useState<T.TwinSummary[]>([]);
+  const [twinsLoaded, setTwinsLoaded] = useState(false);
+  const [twinsError, setTwinsError] = useState<ApiError | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [twin, setTwin] = useState<T.Twin | null>(null);
   const [forecasts, setForecasts] = useState<T.Forecast[]>([]);
   const [history, setHistory] = useState<T.History | null>(null);
@@ -60,28 +67,41 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (seq !== loadSeq.current) return;
       setTwin(tw); setForecasts(fl.forecasts); setHistory(hi); setRecon(rc);
       setSelectedForecastId((cur) => (cur && fl.forecasts.some((f) => f.forecast_id === cur) ? cur : fl.forecasts.length ? fl.forecasts[fl.forecasts.length - 1].forecast_id : null));
-      setRegistry((r) => { const n = upsert(r, { id, label: tw.label }); saveRegistry(n); return n; });
     } catch (e) {
       if (seq !== loadSeq.current) return;
       const err = e instanceof ApiError ? e : new ApiError("server", (e as Error).message);
       setLoadError(err); setTwin(null); setForecasts([]); setHistory(null); setRecon(null);
+      if (err.kind === "not_found") { saveActive(userId, null); setActiveId(null); }      // a remembered twin that is no longer yours / no longer exists
     } finally { if (seq === loadSeq.current) setFlag("load", false); }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
-    saveActive(activeId);
+    if (userId) saveActive(userId, activeId);
     setSelectedVersion(null); setLastReconciliation(null); setObservations({});
     if (activeId) void loadTwin(activeId); else { setTwin(null); setForecasts([]); setHistory(null); setRecon(null); setSelectedForecastId(null); }
-  }, [activeId, loadTwin]);
+  }, [activeId, loadTwin, userId]);
+
+  const reloadTwins = useCallback(async (): Promise<void> => {
+    setFlag("twins", true);
+    try {
+      const { twins: list } = await api.listTwins();
+      setTwins(list); setTwinsError(null); setTwinsLoaded(true);
+      // keep the open twin if it is still in the list, else the remembered one, else the newest
+      setActiveId((cur) => (cur && list.some((t) => t.twin_id === cur) ? cur : (() => { const m = loadActive(userId); return m && list.some((t) => t.twin_id === m) ? m : list[0]?.twin_id ?? null; })()));
+    } catch (e) {
+      setTwinsError(e instanceof ApiError ? e : new ApiError("server", (e as Error).message)); setTwinsLoaded(true);
+    } finally { setFlag("twins", false); }
+  }, [userId]);
+  useEffect(() => { if (userId) void reloadTwins(); }, [userId, reloadTwins]);
 
   const refresh = useCallback(async () => { if (activeId) await loadTwin(activeId); }, [activeId, loadTwin]);
   const fail = (kind: ActionResult["kind"], e: unknown, fallback: string) => note(kind, false, e instanceof ApiError ? e.message : fallback);
 
   const createTwin = useCallback(async (b: T.CreateTwinBody) => {
     setFlag("create", true);
-    try { const tw = await api.createTwin(b); setRegistry((r) => { const n = upsert(r, { id: tw.twin_id, label: tw.label }); saveRegistry(n); return n; }); setActiveId(tw.twin_id); note("create", true, `Twin “${tw.label}” created at version ${tw.state.historical_response_state.version_number}.`); return true; }
+    try { const tw = await api.createTwin(b); await reloadTwins(); setActiveId(tw.twin_id); note("create", true, `Twin “${tw.label}” created at version ${tw.state.historical_response_state.version_number}.`); return true; }
     catch (e) { fail("create", e, "Could not create the twin."); return false; } finally { setFlag("create", false); }
-  }, [note]);
+  }, [note, reloadTwins]);
 
   const requestForecast = useCallback(async (b: T.ForecastBody) => {
     if (!activeId) return null;
@@ -115,19 +135,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     } catch (e) { fail("reconcile", e, "The twin was not updated."); return null; } finally { setFlag("reconcile", false); }
   }, [activeId, loadTwin, note]);
 
-  const openTwinById = useCallback(async (id: string) => {
-    const clean = id.trim().toLowerCase();
-    if (!isTwinId(clean)) { note("create", false, "That is not a valid twin id (expected a UUID)."); return; }
-    setActiveId(clean);
-  }, [note]);
-
   const value = useMemo<Workspace>(() => ({
-    health, healthError, registry, activeId, twin, forecasts, history, recon, observations, lastReconciliation, selectedForecastId, selectedVersion, busy, loadError, lastAction, announce,
+    health, healthError, twins, twinsLoaded, twinsError, reloadTwins, activeId, twin, forecasts, history, recon, observations, lastReconciliation, selectedForecastId, selectedVersion, busy, loadError, lastAction, announce,
     selectForecast: setSelectedForecastId, selectVersion: setSelectedVersion, selectTwin: setActiveId,
-    forgetTwin: (id) => { setRegistry((r) => { const n = r.filter((e) => e.id !== id); saveRegistry(n); return n; }); if (id === activeId) setActiveId(null); },
-    openTwinById, refresh, createTwin, requestForecast, submitObservation, applyReconcile,
-  }), [health, healthError, registry, activeId, twin, forecasts, history, recon, observations, lastReconciliation, selectedForecastId, selectedVersion, busy, loadError, lastAction, announce,
-    openTwinById, refresh, createTwin, requestForecast, submitObservation, applyReconcile]);
+    refresh, createTwin, requestForecast, submitObservation, applyReconcile,
+  }), [health, healthError, twins, twinsLoaded, twinsError, reloadTwins, activeId, twin, forecasts, history, recon, observations, lastReconciliation, selectedForecastId, selectedVersion, busy, loadError, lastAction, announce,
+    refresh, createTwin, requestForecast, submitObservation, applyReconcile]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

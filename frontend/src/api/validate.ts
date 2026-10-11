@@ -54,3 +54,13 @@ export function checkEnvelope(v: unknown): unknown {
   expectFields(o, ["disclaimer", "data"], "response");
   return o.data;
 }
+export function checkUser(v: unknown): void {
+  const o = expectObject(v, "auth");
+  const u = expectObject(o.user, "auth.user");
+  expectFields(u, ["id", "name", "is_guest"], "auth.user");
+}
+export function checkTwinList(v: unknown): void {
+  const o = expectObject(v, "twins");
+  if (!Array.isArray(o.twins)) throw new ApiShapeError("twins: expected a list");
+  o.twins.forEach((t) => expectFields(expectObject(t, "twins[]"), ["twin_id", "label", "current_version"], "twins[]"));
+}

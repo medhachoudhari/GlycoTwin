@@ -16,38 +16,43 @@ describe("auth routes", () => {
   });
 });
 
-describe("validation", () => {
-  const ok = { name: "A", email: "a@b.co", password: "x", confirm: "x", ack: true };
-  it("login needs a well-formed email and a password", () => {
+describe("validation (the same rules the backend enforces, checked before anything is sent)", () => {
+  const ok = { name: "A", email: "a@b.co", password: "long-enough-pass", confirm: "long-enough-pass", ack: true };
+  it("sign in needs a well-formed email and a password", () => {
     expect(validateAuth("login", { ...ok, email: "nope", password: "" })).toEqual({ email: expect.stringMatching(/valid email/), password: expect.stringMatching(/password/i) });
-    expect(validateAuth("login", ok)).toEqual({});
+    expect(validateAuth("login", { ...ok, password: "short" })).toEqual({});                       // an existing account is never told off about length at sign-in
   });
-  it("register also needs a name, matching passwords and the prototype acknowledgement", () => {
+  it("create account also needs a name, 10 to 128 characters, matching passwords and the prototype acknowledgement", () => {
     expect(validateAuth("register", { ...ok, name: " ", confirm: "y", ack: false })).toMatchObject({ name: expect.any(String), confirm: expect.stringMatching(/match/), ack: expect.any(String) });
+    expect(validateAuth("register", { ...ok, password: "short", confirm: "short" }).password).toMatch(/at least 10/);
+    expect(validateAuth("register", { ...ok, password: "x".repeat(129), confirm: "x".repeat(129) }).password).toMatch(/at most 128/);
     expect(validateAuth("register", ok)).toEqual({});
   });
 });
 
-describe("sign in screen is honest about having no account system", () => {
-  it("never calls the network, never shows a signed-in state, has no forgot-password or remember-me, and offers an explicit demo path", () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const { container } = render(<Auth mode="login" />);
+describe("the forms", () => {
+  it("never offer forgot-password or remember-me (not implemented), always show the disclaimer, and link between the pages", () => {
+    const { container, unmount } = render(<Auth mode="login" />);
     expect(screen.queryByText(/forgot password/i)).toBeNull();
     expect(screen.queryByText(/remember me/i)).toBeNull();
+    expect(screen.getByTestId("disclaimer")).toHaveTextContent(DISCLAIMER);
+    expect(screen.getByRole("link", { name: "Create one" })).toHaveAttribute("href", "#/register");
+    expect(container.textContent).toMatch(/temporary guest account/i);
+    expect(container.textContent).not.toMatch(/preview/i);                                       // the "not connected" banner is gone: this is real now
+    unmount();
+    render(<Auth mode="register" />);
+    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "#/login");
+  });
+
+  it("invalid input is explained inline, linked to its field, and sends no request", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    render(<Auth mode="login" />);
     fireEvent.click(screen.getByRole("button", { name: /^sign in/i }));
     expect(screen.getByText("Enter your email address.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Email address")).toHaveAttribute("aria-invalid", "true");
-    type("Email address", "demo@example.com");
-    fireEvent.change(container.querySelector('input[type="password"]')!, { target: { value: "not-a-real-password" } });
-    fireEvent.click(screen.getByRole("button", { name: /^sign in/i }));
-    expect(screen.getByRole("status")).toHaveTextContent(/isn’t available yet/);
-    expect(screen.getByRole("status")).toHaveTextContent(/not signed in/);
-    expect(container.textContent).not.toMatch(/welcome,|signed in as|you are signed in/i);
-    expect((container.querySelector('input[type="password"]') as HTMLInputElement).value).toBe("");   // the typed password is not kept
+    const email = screen.getByLabelText("Email address");
+    expect(email).toHaveAttribute("aria-invalid", "true");
+    expect(document.getElementById(email.getAttribute("aria-describedby")!)).toHaveTextContent("Enter your email address.");
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(screen.getByRole("link", { name: /continue as demo/i })).toHaveAttribute("href", "#/app/home");
-    expect(container.textContent).toContain("without an account");
-    expect(screen.getByTestId("disclaimer")).toHaveTextContent(DISCLAIMER);
   });
 
   it("password visibility toggle changes the input type and its accessible name", () => {
@@ -58,25 +63,16 @@ describe("sign in screen is honest about having no account system", () => {
     expect(screen.getByRole("button", { name: "Hide password" })).toHaveAttribute("aria-pressed", "true");
     expect(container.querySelector("#" + CSS.escape(btn.getAttribute("aria-controls")!))).toHaveAttribute("type", "text");
   });
-});
 
-describe("create account screen", () => {
-  it("validates, then says no account was created", () => {
+  it("the create-account form requires the password rule before it sends anything", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const { container } = render(<Auth mode="register" />);
-    fireEvent.click(screen.getByRole("button", { name: /^create account/i }));
-    ["Enter your name.", "Enter your email address.", "Choose a password.", "Confirm your password."].forEach((t) => expect(screen.getByText(t)).toBeInTheDocument());
     type("Full name", "Demo Person"); type("Email address", "demo@example.com");
     const pw = container.querySelectorAll('input[type="password"]');
-    fireEvent.change(pw[0], { target: { value: "abc12345" } }); fireEvent.change(pw[1], { target: { value: "different" } });
+    fireEvent.change(pw[0], { target: { value: "short" } }); fireEvent.change(pw[1], { target: { value: "short" } });
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /^create account/i }));
-    expect(screen.getByText("The two passwords do not match.")).toBeInTheDocument();
-    fireEvent.change(pw[1], { target: { value: "abc12345" } });
-    fireEvent.click(screen.getByRole("button", { name: /^create account/i }));
-    expect(screen.getByRole("status")).toHaveTextContent(/Account creation isn’t available yet/);
-    expect(screen.getByRole("status")).toHaveTextContent(/not registered/);
+    expect(screen.getByText("Use at least 10 characters.")).toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "#/login");
   });
 });

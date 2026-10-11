@@ -126,3 +126,9 @@ export interface ForecastBody { event_id: string; meal_time: string; carbs_g: nu
   activity_coverage?: number; baseline_age_minutes?: number; trend_slope_30min?: number; time_since_last_meal_min?: number }
 export interface ObserveBody { forecast_id: string; observed_through: string; peak_glucose_mg_dl?: number; window_completeness?: number; excluded_reason?: string }
 export interface WhatIfBody { baseline_glucose: number; scenarios: Array<{ label?: string; carbs_g: number; activity_level: number }> }
+
+/** Accounts and the caller's own twins (backend: /auth/*, GET /twins). The session itself lives in an HttpOnly cookie that page scripts cannot read. */
+export interface AuthUser { id: string; name: string; email: string | null; is_guest: boolean; created_at: string }
+export interface TwinSummary { twin_id: string; label: string; created_at: string; prior_source: string; prior_scheme: string; is_synthetic: boolean; current_version: number }
+export interface RegisterBody { name: string; email: string; password: string }
+export interface LoginBody { email: string; password: string }

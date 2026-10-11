@@ -57,3 +57,8 @@
 .a-input { min-height: 44px; }
 @media (max-width: 860px) { .auth-intro { padding-top: 8px; } }
 @media (max-width: 860px) { .orb { display: none; } }
+
+/* real sign-in: form-level errors, busy state */
+.a-formerr { font-size: 13px; line-height: 1.5; padding: 12px 14px; border: 1px solid var(--role-error); border-left-width: 4px; border-radius: 6px; color: var(--ink); background: rgba(255, 143, 122, .08); }
+.a-submit .spinner { margin-right: 8px; }
+.a-submit[disabled], .a-demo[disabled] { opacity: .7; cursor: progress; }

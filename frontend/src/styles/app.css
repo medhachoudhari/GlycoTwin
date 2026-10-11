@@ -73,4 +73,10 @@ select.input { appearance: auto; }
 }
 @media (max-width: 560px) { .row2 { grid-template-columns: 1fr; } .disclaimer-bar { flex-direction: column; gap: 2px; } .panel { padding: 14px; } }
 .side :focus-visible, .main-col .disclaimer-bar + * .nothing { outline-color: var(--gold-l); }
-.side .demo-note { color: rgba(244,239,227,.72); border-top: 1px solid var(--line-d); padding-top: 8px; font-size: 12px; }
+.side .demo-note { color: rgba(244,239,227,.78); font-size: 12px; }
+.side .who { display: grid; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--line-d); }
+.side .who .eyebrow { color: var(--sage); }
+.side .logout { color: var(--ivory); border-color: var(--line-d); background: transparent; justify-self: start; }
+.side .logout:hover:not(:disabled) { background: var(--ivory); color: var(--ink); }
+.guest-badge { font: 600 10px/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px; border: 1px solid var(--gold-l); color: var(--gold-l); border-radius: 999px; }
+.side .small { color: rgba(244, 239, 227, .8); } .side .who strong, .side .side-foot strong { color: var(--ivory); }

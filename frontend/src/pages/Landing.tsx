@@ -4,6 +4,7 @@ import type { Health } from "../api/types";
 import { OrganicForm } from "../components/organic/OrganicForm";
 import { ParticleWave } from "../components/organic/ParticleWave";
 import { Disclaimer } from "../components/ui/Disclaimer";
+import { useAuth } from "../auth/AuthContext";
 import { appHref } from "../lib/router";
 
 const REPO = "https://github.com/medhachoudhari/GlycoTwin";
@@ -24,6 +25,7 @@ function useHealth() {
 export function Landing({ section }: { section?: string }) {
   const [open, setOpen] = useState(false);
   const health = useHealth();
+  const auth = useAuth();
 
   useEffect(() => {
     if (section) document.getElementById(section)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -41,7 +43,7 @@ export function Landing({ section }: { section?: string }) {
         <button className="menu-btn" aria-expanded={open} aria-controls="l-links" onClick={() => setOpen((o) => !o)}>{open ? "Close" : "Menu"}</button>
         <nav id="l-links" className={open ? "open" : ""} aria-label="Primary">
           {NAV.map(([label, href]) => <a key={href} href={href} onClick={() => setOpen(false)}>{label}</a>)}
-          <a href="#/login" onClick={() => setOpen(false)}>Sign in</a>
+          {auth.user ? <a href={appHref("home")} onClick={() => setOpen(false)}>Hi, {auth.user.name.split(" ")[0]}</a> : <a href="#/login" onClick={() => setOpen(false)}>Sign in</a>}
           <a className="btn primary sm" href={appHref("home")}>Launch App</a>
         </nav>
       </header>

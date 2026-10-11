@@ -52,17 +52,6 @@ export function CreateTwinForm() {
   );
 }
 
-export function OpenTwinForm() {
-  const ws = useWorkspace();
-  const [id, setId] = useState("");
-  return (
-    <form className="form" onSubmit={(e) => { e.preventDefault(); void ws.openTwinById(id); }} aria-label="Open an existing twin">
-      <Field label="Twin id" value={id} onChange={setId} className="input mono" spellCheck={false} placeholder="UUID returned when the twin was created" />
-      <button className="btn" type="submit" disabled={!id.trim()}>Open twin</button>
-    </form>
-  );
-}
-
 export function MealForm({ onDone }: { onDone?: (f: Forecast) => void }) {
   const ws = useWorkspace();
   const range = supportedActivityRange(ws.twin);

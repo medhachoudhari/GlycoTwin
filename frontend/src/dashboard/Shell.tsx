@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { useAuth } from "../auth/AuthContext";
 import { Disclaimer } from "../components/ui/Disclaimer";
 import { Pill } from "../components/ui/Status";
 import { appHref, type View } from "../lib/router";
@@ -8,6 +9,7 @@ const NAV: Array<[View, string]> = [["home", "Home"], ["twin", "My Twin"], ["for
 
 export function Shell({ view, children }: { view: View; children: ReactNode }) {
   const ws = useWorkspace();
+  const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const title = NAV.find(([v]) => v === view)?.[1] ?? "";
   return (
@@ -24,8 +26,15 @@ export function Shell({ view, children }: { view: View; children: ReactNode }) {
         <div className="side-foot">
           <p className="eyebrow">Backend</p>
           {ws.health ? <Pill tone={ws.health.status === "ok" ? "ok" : "warn"}>{ws.health.status}</Pill> : ws.healthError ? <Pill tone="err">Unreachable</Pill> : <Pill tone="muted">Checking</Pill>}
-          {ws.twin && <p className="small">Active twin<br /><strong>{ws.twin.label}</strong></p>}
-          <p className="small demo-note">Demonstration mode: no account. Twins are not private to a user.</p>
+          {user && (
+            <div className="who">
+              <p className="eyebrow">Signed in</p>
+              <p className="small"><strong>{user.name}</strong>{user.is_guest && <> <span className="guest-badge">Guest</span></>}</p>
+              {user.is_guest && <p className="small demo-note">Guest mode: a temporary account for demonstration. Its twins belong only to this guest and are lost to you when it ends.</p>}
+              <button className="btn small logout" onClick={() => { void logout().then(() => window.location.replace("#/login")); }}>Log out</button>
+            </div>
+          )}
+          {ws.twin && <p className="small">Open twin<br /><strong>{ws.twin.label}</strong></p>}
         </div>
       </aside>
       <div className="main-col">

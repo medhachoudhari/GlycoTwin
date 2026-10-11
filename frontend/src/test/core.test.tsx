@@ -8,7 +8,7 @@ import { ResponseChart } from "../dashboard/ResponseChart";
 import { DISCLAIMER } from "../lib/config";
 import { linear, niceTicks } from "../lib/chartMath";
 import { parseHash } from "../lib/router";
-import { isTwinId, upsert } from "../lib/twinRegistry";
+import { isTwinId, loadActive, saveActive } from "../lib/twinRegistry";
 
 afterEach(() => vi.restoreAllMocks());
 const mockFetch = (status: number, body: unknown) => vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }));
@@ -62,7 +62,12 @@ describe("helpers", () => {
   it("registry", () => {
     expect(isTwinId("123e4567-e89b-12d3-a456-426614174000")).toBe(true);
     expect(isTwinId("nope")).toBe(false);
-    expect(upsert([], { id: "a", label: "A" })).toHaveLength(1);
+    const mem = new Map<string, string>();
+    const store = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) };
+    saveActive("user-1", "123e4567-e89b-12d3-a456-426614174000", store);
+    expect(loadActive("user-1", store)).toBe("123e4567-e89b-12d3-a456-426614174000");
+    expect(loadActive("user-2", store)).toBeNull();                                            // remembered per user, never shared between accounts
+    expect([...mem.keys()].join()).not.toMatch(/token|password|session/i);
   });
   it("scales", () => {
     expect(linear([0, 10], [0, 100])(5)).toBe(50);
