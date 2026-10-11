@@ -234,3 +234,30 @@ class SqlTwinStore(TwinStore):
 
     def _restore(self, snapshot) -> None:
         raise NotImplementedError("SqlTwinStore is atomic through database transactions; use the service layer")
+
+
+class AsOfStore(SqlTwinStore):
+    """Read-only view of a twin AS IT WAS at `version` (what a past forecast could see): the posterior of that version and only the reconciliations that had
+    produced it. Used to explain a stored forecast without leaking what was learned afterwards. All writes are refused."""
+
+    def __init__(self, session: Session, twin_id: str, version: int) -> None:
+        super().__init__(session, twin_id)
+        self.version = int(version)
+
+    def current_twin(self, participant_id: str) -> TwinState:
+        twin = self._check(participant_id)
+        row = self.session.scalars(select(TwinStateRow).where(TwinStateRow.twin_id == self.twin_id, TwinStateRow.version == self.version)).first()
+        if row is None:
+            raise KeyError(f"twin version {self.version} not found")
+        return self._to_state(twin, row)
+
+    def reconciliation_log(self, participant_id: str) -> list[ObservationRecord]:
+        return [o for o in super().reconciliation_log(participant_id) if o.twin_version_after_update <= self.version]
+
+    def pending_forecasts(self, participant_id: str) -> list[ForecastRecord]:
+        raise NotImplementedError("read-only as-of view")
+
+    def _no_write(self, *a, **k):
+        raise RuntimeError("an as-of view is read-only")
+
+    save_forecast = save_observation = save_exclusion = _save_new_version = initialize_twin = _no_write

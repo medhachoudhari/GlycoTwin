@@ -63,3 +63,8 @@ htmlcov/
 Thumbs.db
 .idea/
 .vscode/
+
+# Frontend
+node_modules/
+frontend/dist/
+*.tsbuildinfo

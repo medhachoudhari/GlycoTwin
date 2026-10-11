@@ -322,3 +322,8 @@ Only items that automation cannot do. Batched so you can answer once.
 | When | What | Result |
 |---|---|---|
 | before the backend commit | the synthetic demo prior (fitted on simulated 0-1 activity) now rejects activity outside [0, 1]; prior-file twins flag activity outside their recorded range; `export_prior.py` records the aggregate range; init/re-init verified never to change rows | research equations, Model C scaling and real-data results unchanged; **760 passed** (744 before; 16 new backend tests); 7 injected faults all caught; all tests SYNTHETIC |
+
+### Verification entry: backend innovation integration (uncommitted)
+| When | What | Result |
+|---|---|---|
+| after the committed backend (1a8846f) | reconcile responses report `parameter_change` (beta/gamma mean and sd before/after, sd ratio) from stored parameter snapshots; new `GET /forecasts/{id}/explanation` (as-of the forecast's own twin version, via a new read-only `AsOfStore`), `GET /sensitivity` (Model C sensitivity curve over activity, demo/prior-file range enforced), `GET /reconciliations` (forecast-vs-observed history + hit-rate trend + rolling calibration); what-if responses add a flat `comparison` table over the unchanged `insight.what_if` output | all four reuse existing `twin.insight` / `twin.state_view` functions unchanged; no new uncertainty formula or clinical claim; **769 passed** (760 before; 9 new backend tests, including the `/sensitivity` 0-25 range check); mutation check on the new code: 8 injected faults, 7 caught, 1 equivalent (redundant guard already enforced deeper in `explain_forecast`); all tests SYNTHETIC; no real-data run |

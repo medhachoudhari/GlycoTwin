@@ -56,7 +56,24 @@ rejected outside that range but the forecast carries a low-data-quality reason, 
 
 ## Endpoints
 `GET /health`, `POST /twins`, `GET /twins/{id}`, `GET /twins/{id}/history`, `POST /twins/{id}/forecast`, `GET /twins/{id}/forecasts`, `POST /twins/{id}/observe`,
-`POST /twins/{id}/reconcile`, `POST /twins/{id}/what-if`. There is no endpoint that lists twins or research participants. Interactive docs: `/docs`.
+`POST /twins/{id}/reconcile`, `POST /twins/{id}/what-if`, `GET /twins/{id}/forecasts/{forecast_id}/explanation`, `GET /twins/{id}/sensitivity`,
+`GET /twins/{id}/reconciliations`. There is no endpoint that lists twins or research participants. Interactive docs: `/docs`.
+
+## Innovation integration (this phase)
+* **Reconcile → parameter_change**: the reconcile response now reports, for both Model B and Model C, the posterior mean and sd of beta (and gamma for C)
+  before and after the update, with the sd ratio (< 1 means the observation narrowed the estimate). Computed from the two stored `parameter_snapshots` rows;
+  nothing is recomputed outside the engine. Idempotent: a repeated reconcile call returns the same `parameter_change`, not a freshly computed one.
+* **`GET /forecasts/{id}/explanation`**: calls the existing `twin.insight.explain_forecast_in_context` on an `AsOfStore`, a read-only view of the twin
+  frozen at `twin_version_at_forecast`. This guarantees the explanation of an old forecast can never show what the twin learned afterwards, even if the
+  forecast has since been reconciled. Returns the model's own additive terms, the parameter-vs-noise variance split, and the contributing-factor list
+  (carbs, activity, trend, similar past meals); explicitly labelled "not a causal claim".
+* **`GET /sensitivity`**: `twin.insight.effective_sensitivity` evaluated over a short list of activity values, with the beta-gamma covariance in the
+  uncertainty (Model C) and the single Model B value. Subject to the same demo/prior-file activity-range enforcement as forecasts (`check_activity_support`).
+* **`GET /reconciliations`**: `twin.insight.reconciliation_report` plus `hit_rate_trend` and the rolling calibration score from `twin_state_view`
+  (forecast-vs-observed history, hits at the 50% threshold, Brier components, standardised errors). Descriptive; a few meals per person cannot assess calibration.
+* **What-if `comparison` table**: the existing `insight.what_if` output, reshaped into a flat side-by-side table (one row per scenario, both models,
+  deltas relative to the first/reference scenario). The simulation itself is unchanged and still never touches the twin.
+All four reuse the existing read-only `twin.insight` / `twin.state_view` functions; no new uncertainty formula, confidence level, or clinical claim was added.
 
 ## Not included
 Authentication, migrations (tables are created if missing; schema changes would need a migration tool), the React frontend (next phase), and any real-data validation.

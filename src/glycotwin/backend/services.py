@@ -28,7 +28,7 @@ from glycotwin.backend import DISCLAIMER
 from glycotwin.backend.config import Settings
 from glycotwin.backend.models import DataQualityFlag, ForecastRow, ObservationRow, ParameterSnapshot, ReconciliationRow, Twin, TwinStateRow, WhatIfRun
 from glycotwin.backend.priors import PriorError, demo_prior, load_prior_file
-from glycotwin.backend.store import SqlTwinStore, forecast_row_to_record
+from glycotwin.backend.store import AsOfStore, SqlTwinStore, forecast_row_to_record
 from glycotwin.features import GLUCOSE_THRESHOLD_MG_DL, OUTCOME_WINDOW
 from glycotwin.twin import insight
 from glycotwin.twin.state import exclude_forecast, forecast_meal, reconcile_forecast
@@ -290,17 +290,37 @@ def _metrics(f: ForecastRow, o: ObservationRow) -> dict:
     return out
 
 
-def _reconciliation_out(r: ReconciliationRow) -> dict:
-    return {"reconciliation_id": r.id, "forecast_id": r.forecast_id, "observation_id": r.observation_id, "outcome": r.outcome,
-            "twin_version_before": r.twin_version_before, "twin_version_after": r.twin_version_after, "reconciled_at": r.reconciled_at.isoformat(),
-            "metrics": r.metrics}
+def _parameter_change(session: Session, twin_id: str, before: int, after: int) -> dict:
+    """How the posterior moved between two stored versions (means and standard deviations of beta and gamma; sd ratios < 1 mean the data narrowed it)."""
+    def snap(version, model):
+        return session.scalars(select(ParameterSnapshot).join(TwinStateRow, TwinStateRow.id == ParameterSnapshot.twin_state_id)
+                               .where(TwinStateRow.twin_id == twin_id, TwinStateRow.version == version, ParameterSnapshot.model == model)).one()
+    out = {}
+    for model, name in (("B", "model_b"), ("C", "model_c")):
+        a, b = snap(before, model), snap(after, model)
+        row = {"beta_mean_before": a.beta_mean, "beta_mean_after": b.beta_mean, "beta_sd_before": a.beta_var ** 0.5, "beta_sd_after": b.beta_var ** 0.5,
+               "beta_sd_ratio": (b.beta_var / a.beta_var) ** 0.5 if a.beta_var > 0 else None}
+        if model == "C":
+            row.update({"gamma_mean_before": a.gamma_mean, "gamma_mean_after": b.gamma_mean, "gamma_sd_before": a.gamma_var ** 0.5, "gamma_sd_after": b.gamma_var ** 0.5,
+                        "gamma_sd_ratio": (b.gamma_var / a.gamma_var) ** 0.5 if a.gamma_var > 0 else None})
+        out[name] = row
+    return out
+
+
+def _reconciliation_out(r: ReconciliationRow, session: Optional[Session] = None, twin_id: Optional[str] = None) -> dict:
+    out = {"reconciliation_id": r.id, "forecast_id": r.forecast_id, "observation_id": r.observation_id, "outcome": r.outcome,
+           "twin_version_before": r.twin_version_before, "twin_version_after": r.twin_version_after, "reconciled_at": r.reconciled_at.isoformat(),
+           "metrics": r.metrics}
+    if r.outcome == "updated" and session is not None:
+        out["parameter_change"] = _parameter_change(session, twin_id, r.twin_version_before, r.twin_version_after)
+    return out
 
 
 def reconcile(session: Session, twin_id: str, req) -> tuple[dict, bool]:
     _twin(session, twin_id)
     f = _forecast(session, twin_id, req.forecast_id)
     if f.reconciliation is not None:
-        return _reconciliation_out(f.reconciliation), False            # idempotent repeat: the twin is never updated twice
+        return _reconciliation_out(f.reconciliation, session, twin_id), False            # idempotent repeat: the twin is never updated twice
     o = f.observation
     if o is None:
         raise ServiceError(409, "no observation has been submitted for this forecast yet")
@@ -320,7 +340,7 @@ def reconcile(session: Session, twin_id: str, req) -> tuple[dict, bool]:
     except (ValueError, KeyError) as exc:
         raise ServiceError(409, f"reconciliation refused: {exc}") from None
     session.expire_all()
-    return _reconciliation_out(session.get(ReconciliationRow, rid)), True
+    return _reconciliation_out(session.get(ReconciliationRow, rid), session, twin_id), True
 
 
 # ----------------------------------------------------------------------------- what-if
@@ -344,7 +364,76 @@ def what_if(session: Session, twin_id: str, req) -> dict:
     run_id = str(uuid.uuid4())
     with transaction(session):
         session.add(WhatIfRun(id=run_id, twin_id=twin_id, twin_version_used=tw.version, request=req.model_dump(), result=result))
-    return {"what_if_id": run_id, **result, "prior_support_warnings": flags}
+    return {"what_if_id": run_id, **result, "comparison": _what_if_table(result), "prior_support_warnings": flags}
+
+
+def _what_if_table(result: dict) -> dict:
+    """Scenarios side by side on the SAME posterior (the first scenario is the reference): probability and predicted rise for both models, and the deltas."""
+    rows = []
+    for i, sc in enumerate(result["scenarios"]):
+        row = {"label": sc["scenario"].get("label") or f"scenario {i + 1}", "carbs_g": sc["scenario"]["carbs_g"], "activity_level": sc["scenario"]["activity_level"],
+               "is_reference": i == 0}
+        for m in ("model_b", "model_c"):
+            d = sc[m]
+            row[m] = {"p_peak_at_least_180": d["p_peak_at_least_180"], "mean_rise_mg_dl": d["distribution"]["mean_rise_mg_dl"],
+                      "interval90_rise_mg_dl": d["distribution"]["interval90_mg_dl"]}
+            if i:
+                diff = sc["difference_from_first_scenario"][m]
+                row[m]["delta_p_vs_reference"], row[m]["delta_rise_mg_dl_vs_reference"] = diff["p_peak_at_least_180"], diff["mean_rise_mg_dl"]
+        rows.append(row)
+    return {"reference": rows[0]["label"], "twin_version_used": result["twin_version_used"], "rows": rows,
+            "note": "Deltas compare hypothetical inputs on one posterior; they describe the model, not a causal effect on the person."}
+
+
+# ----------------------------------------------------------------------------- explanation, sensitivity, reconciliation view
+
+def explanation(session: Session, twin_id: str, forecast_id: str, model: str = "model_c") -> dict:
+    """Why this forecast: the model's own additive terms, parameter-vs-noise uncertainty split, threshold arithmetic and contributing factors, computed on the twin
+    AS IT WAS when the forecast was made (nothing learned later can appear), with the person's earlier observed similar meals."""
+    _twin(session, twin_id)
+    f = _forecast(session, twin_id, forecast_id)
+    if model not in ("model_b", "model_c"):
+        raise ServiceError(422, "model must be model_b or model_c")
+    store = AsOfStore(session, twin_id, f.twin_version_at_forecast)
+    meal = {k: v for k, v in f.inputs.items() if k not in ("event_id", "meal_time") and v is not None}
+    try:
+        out = insight.explain_forecast_in_context(store, twin_id, meal, model)
+    except ValueError as exc:
+        raise ServiceError(422, str(exc)) from None
+    out = json.loads(json.dumps(out, default=float))
+    out.update({"forecast_id": f.id, "event_id": f.event_id, "twin_version_used": f.twin_version_at_forecast, "stored_forecast_probability":
+                f.c_probability if model == "model_c" else f.b_probability, "data_quality": f.data_quality})
+    return out
+
+
+def sensitivity(session: Session, twin_id: str, activities: list[float]) -> dict:
+    """The twin's personal carbohydrate sensitivity (mg/dL of peak rise per gram) as a function of pre-meal activity, with the beta-gamma covariance in its
+    uncertainty. Model B has one value. Descriptive output of the posterior; not a causal claim about activity."""
+    twin_row = _twin(session, twin_id)
+    if not activities or len(activities) > 25:
+        raise ServiceError(422, "give between 1 and 25 activity values")
+    flags = check_activity_support(twin_row, activities)            # a demo twin refuses values off its 0-1 scale; prior-file twins get warnings
+    store = SqlTwinStore(session, twin_id)
+    tw = store.current_twin(twin_id)
+    curve = [{"activity_level": float(a), **{k: v for k, v in insight.effective_sensitivity(tw.model_c, float(a)).items() if k != "activity"}} for a in activities]
+    gm, gs = tw.model_c.coefficient("carbs_x_activity")
+    return json.loads(json.dumps({
+        "twin_id": twin_id, "twin_version": tw.version, "units": insight.UNITS, "model_b": insight.effective_sensitivity(tw.model_b),
+        "model_c_curve": curve, "gamma_activity_interaction": {"mean": gm, "sd": gs, "interval90": insight._interval(gm, gs)},
+        "n_meals_observed": int(tw.model_c.n_observations_used), "activity_scale": (twin_row.prior_provenance or {}).get("activity_scale"),
+        "prior_support_warnings": flags, "guardrails": insight.GUARDRAILS}, default=float))
+
+
+def reconciliation_view(session: Session, twin_id: str) -> dict:
+    """Forecast versus observed for every reconciled forecast (what each model predicted BEFORE the outcome, whether the outcome fell inside the 90% interval,
+    the probability given to what happened), plus the hit-rate trend and the rolling calibration score. Descriptive: a few meals per person cannot assess calibration."""
+    _twin(session, twin_id)
+    store = SqlTwinStore(session, twin_id)
+    rep = insight.reconciliation_report(store, twin_id)
+    view = twin_state_view(store, twin_id, None)
+    return json.loads(json.dumps({**rep, "hit_rate_trend": insight.hit_rate_trend(store, twin_id),
+                                  "rolling_calibration": view["uncertainty"]["calibration_score_rolling"],
+                                  "excluded": [{"forecast_id": e.forecast_id, "reason": e.reason} for e in store.exclusions(twin_id)]}, default=float))
 
 
 def envelope(data: dict) -> dict:

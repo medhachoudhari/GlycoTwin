@@ -464,7 +464,8 @@ def test_no_endpoint_lists_twins_or_research_participants(app):
     paths = {(p, tuple(sorted(m.upper() for m in ops))) for p, ops in spec.items()}
     api = set(spec)
     assert api == {"/health", "/twins", "/twins/{twin_id}", "/twins/{twin_id}/history", "/twins/{twin_id}/forecast", "/twins/{twin_id}/forecasts",
-                   "/twins/{twin_id}/observe", "/twins/{twin_id}/reconcile", "/twins/{twin_id}/what-if"}
+                   "/twins/{twin_id}/observe", "/twins/{twin_id}/reconcile", "/twins/{twin_id}/what-if",
+                   "/twins/{twin_id}/forecasts/{forecast_id}/explanation", "/twins/{twin_id}/sensitivity", "/twins/{twin_id}/reconciliations"}
     assert ("/twins", ("POST",)) in paths                                                # creating, never listing
     assert all("participant" not in p for p in api)
 
@@ -648,3 +649,117 @@ def test_init_never_issues_drop_or_delete_statements():
     for f in ("src/glycotwin/backend/db.py", "scripts/init_db.py", "src/glycotwin/backend/app.py"):
         text = (ROOT / f).read_text(encoding="utf-8")
         assert not re.search(r"drop_all|DROP\s+TABLE|DELETE\s+FROM|\.delete\(|remove\(|unlink\(|rmtree", text, re.I), f
+
+
+# ------------------------------------------------------------------ innovation integration: explanation, sensitivity, reconciliation view, what-if comparison
+
+def test_reconcile_response_reports_the_parameter_change_for_both_models(client):
+    tid = new_twin(client)
+    f, r = cycle(client, tid, 0, peak=200)
+    pc = r["parameter_change"]
+    assert set(pc) == {"model_b", "model_c"}
+    for m in ("model_b", "model_c"):
+        assert pc[m]["beta_mean_before"] != pc[m]["beta_mean_after"]
+        assert pc[m]["beta_sd_after"] < pc[m]["beta_sd_before"] and 0 < pc[m]["beta_sd_ratio"] < 1          # a real observation narrows the posterior
+    assert pc["model_c"]["gamma_sd_after"] < pc["model_c"]["gamma_sd_before"]
+    # repeating the reconcile returns the SAME parameter_change (idempotent, not recomputed from a moved state)
+    r2 = client.post(f"/twins/{tid}/reconcile", json={"forecast_id": f["forecast_id"]}).json()["data"]
+    assert r2["parameter_change"] == pc and r2["created"] is False
+
+
+def test_excluded_reconciliation_has_no_parameter_change(client):
+    tid = new_twin(client)
+    f = client.post(f"/twins/{tid}/forecast", json=meal(0)).json()["data"]
+    client.post(f"/twins/{tid}/observe", json={"forecast_id": f["forecast_id"], "observed_through": (T0 + timedelta(minutes=130)).isoformat(), "excluded_reason": "sensor gap over 30 minutes"})
+    r = client.post(f"/twins/{tid}/reconcile", json={"forecast_id": f["forecast_id"]}).json()["data"]
+    assert r["outcome"] == "excluded" and "parameter_change" not in r
+
+
+def test_explanation_endpoint_reflects_the_twin_as_it_was_at_forecast_time_not_later(client):
+    tid = new_twin(client)
+    f0, _ = cycle(client, tid, 0, peak=150)                                     # version 0 -> 1
+    f1 = client.post(f"/twins/{tid}/forecast", json=meal(1)).json()["data"]     # forecast made from version 1
+    e0 = client.get(f"/twins/{tid}/forecasts/{f0['forecast_id']}/explanation").json()["data"]
+    e1 = client.get(f"/twins/{tid}/forecasts/{f1['forecast_id']}/explanation").json()["data"]
+    assert e0["twin_version_used"] == 0 and e1["twin_version_used"] == 1
+    assert e0["terms"]["carbs_g"]["coefficient_mean"] != e1["terms"]["carbs_g"]["coefficient_mean"]           # the posterior really differs between versions
+    assert e1["stored_forecast_probability"] == pytest.approx(f1["model_c"]["p_peak_at_least_180"])
+    assert "not a causal claim" in e1["kind"]
+    # reconciling f1 AFTER explaining it must not change what the explanation already returned (as-of, not live)
+    client.post(f"/twins/{tid}/observe", json={"forecast_id": f1["forecast_id"], "observed_through": (T0 + timedelta(hours=6, minutes=120)).isoformat(), "peak_glucose_mg_dl": 220})
+    client.post(f"/twins/{tid}/reconcile", json={"forecast_id": f1["forecast_id"]})
+    e1_again = client.get(f"/twins/{tid}/forecasts/{f1['forecast_id']}/explanation").json()["data"]
+    assert e1_again == e1
+
+
+def test_explanation_endpoint_validates_model_and_forecast(client):
+    tid = new_twin(client)
+    f = client.post(f"/twins/{tid}/forecast", json=meal(0)).json()["data"]
+    assert client.get(f"/twins/{tid}/forecasts/{f['forecast_id']}/explanation?model=model_z").status_code == 422
+    assert client.get(f"/twins/{tid}/forecasts/not-a-real-id/explanation").status_code == 404
+    bexp = client.get(f"/twins/{tid}/forecasts/{f['forecast_id']}/explanation?model=model_b").json()["data"]
+    assert "carbs_x_activity" not in bexp["terms"] and bexp["model"] == "model_b"
+
+
+def test_sensitivity_curve_matches_the_underlying_posterior_and_enforces_demo_scale(client):
+    tid = new_twin(client)
+    cycle(client, tid, 0, peak=200)
+    r = client.get(f"/twins/{tid}/sensitivity?activities=0,0.3,0.7,1").json()["data"]
+    assert [p["activity_level"] for p in r["model_c_curve"]] == [0, 0.3, 0.7, 1]
+    assert r["gamma_activity_interaction"]["sd"] > 0 and r["n_meals_observed"] == 1
+    assert "not METs" in (r["activity_scale"] or "")
+    with session_of(client.app) as s:
+        tw = SqlTwinStore(s, tid).current_twin(tid)
+    ref = insight.effective_sensitivity(tw.model_c, 0.3)
+    match = [p for p in r["model_c_curve"] if p["activity_level"] == 0.3][0]
+    assert match["mean"] == pytest.approx(ref["mean"]) and match["sd"] == pytest.approx(ref["sd"])
+    assert client.get(f"/twins/{tid}/sensitivity?activities=0,5").status_code == 422           # one bad value rejects the whole request
+    assert client.get(f"/twins/{tid}/sensitivity?activities=").status_code == 422
+    assert client.get(f"/twins/{tid}/sensitivity?activities=" + ",".join(["0.1"] * 26)).status_code == 422
+
+
+def test_reconciliation_view_endpoint_matches_the_history_and_includes_hit_rate(client):
+    tid = new_twin(client)
+    for i, peak in enumerate((150, 210, 170)):
+        cycle(client, tid, i, peak=peak)
+    r = client.get(f"/twins/{tid}/reconciliations").json()["data"]
+    assert r["summary"]["n_reconciled"] == 3 and len(r["reconciled"]) == 3
+    assert r["hit_rate_trend"]["n_reconciled"] == 3 and r["rolling_calibration"]["n_reconciled_in_window"] == 3
+    assert r["excluded"] == []
+    for row in r["reconciled"]:
+        assert "observed" in row and "model_c" in row and "standardised_error" in row["model_c"]
+
+
+def test_what_if_comparison_table_lists_both_models_and_deltas_relative_to_the_reference(client):
+    tid = new_twin(client)
+    cycle(client, tid, 0, peak=180)
+    body = {"scenarios": [{"label": "ref", "carbs_g": 60, "activity_level": 0.5}, {"label": "half", "carbs_g": 30, "activity_level": 0.5}], "baseline_glucose": 110}
+    d = client.post(f"/twins/{tid}/what-if", json=body).json()["data"]
+    comp = d["comparison"]
+    assert comp["reference"] == "ref" and comp["rows"][0]["is_reference"] and not comp["rows"][1]["is_reference"]
+    for m in ("model_b", "model_c"):
+        assert comp["rows"][1][m]["delta_rise_mg_dl_vs_reference"] < 0
+        assert comp["rows"][1][m]["mean_rise_mg_dl"] == pytest.approx(d["scenarios"][1][m]["distribution"]["mean_rise_mg_dl"])
+    assert comp["twin_version_used"] == 1
+
+
+def test_new_read_endpoints_never_modify_the_twin(client, app):
+    tid = new_twin(client)
+    cycle(client, tid, 0, peak=190)
+    before = client.get(f"/twins/{tid}/history").json()["data"]
+    counts_before = _counts(app)
+    f = client.get(f"/twins/{tid}/forecasts").json()["data"]["forecasts"][0]["forecast_id"]
+    client.get(f"/twins/{tid}/forecasts/{f}/explanation")
+    client.get(f"/twins/{tid}/sensitivity?activities=0.2,0.8")
+    client.get(f"/twins/{tid}/reconciliations")
+    assert client.get(f"/twins/{tid}/history").json()["data"] == before and _counts(app) == counts_before
+
+
+def test_sensitivity_accepts_the_documented_0_to_25_range_at_the_route_and_rejects_outside_it(client):
+    tid = new_twin(client)
+    desc = client.get("/openapi.json").json()["paths"]["/twins/{twin_id}/sensitivity"]["get"]["parameters"]
+    assert "0 to 25" in [p for p in desc if p["name"] == "activities"][0]["description"]
+    r = client.get(f"/twins/{tid}/sensitivity?activities=26")
+    assert r.status_code == 422 and "between 0 and 25" in r.json()["detail"]                    # route-level bound, before any twin-specific check
+    assert client.get(f"/twins/{tid}/sensitivity?activities=-0.1").status_code == 422
+    assert client.get(f"/twins/{tid}/sensitivity?activities=0,1").status_code == 200           # the demo twin's own 0-1 scale is still accepted
