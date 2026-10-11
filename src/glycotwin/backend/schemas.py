@@ -110,3 +110,37 @@ class WhatIfRequest(Strict):
 class Envelope(BaseModel):
     disclaimer: str
     data: Dict[str, Any]
+
+
+class RegisterRequest(Strict):
+    name: str = Field(..., min_length=1, max_length=80, description="Display name.")
+    email: str = Field(..., min_length=3, max_length=254)
+    password: str = Field(..., min_length=1, max_length=256, description="10 to 128 characters; never stored or returned.")
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, v: str) -> str:
+        v = v.strip()
+        if not v or any(ord(c) < 32 for c in v):
+            raise ValueError("name must not be empty or contain control characters")
+        return v
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, v: str) -> str:
+        from glycotwin.backend.security import EMAIL_RE, normalise_email
+        v = normalise_email(v)
+        if not EMAIL_RE.match(v):
+            raise ValueError("enter a valid email address")
+        return v
+
+
+class LoginRequest(Strict):
+    email: str = Field(..., min_length=1, max_length=254)
+    password: str = Field(..., min_length=1, max_length=256)
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, v: str) -> str:
+        from glycotwin.backend.security import normalise_email
+        return normalise_email(v)

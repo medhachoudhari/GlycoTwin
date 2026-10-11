@@ -10,7 +10,8 @@ from fastapi.responses import JSONResponse
 from glycotwin.backend import DISCLAIMER
 from glycotwin.backend.config import Settings, get_settings
 from glycotwin.backend.db import init_db, make_engine, session_factory
-from glycotwin.backend.routers import health, twins
+from glycotwin.backend.routers import auth, health, twins
+from glycotwin.backend.security import Throttle
 from glycotwin.backend.services import ServiceError
 
 
@@ -21,12 +22,14 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app = FastAPI(title="GlycoTwin research API", version="0.1.0",
                   description=DISCLAIMER + " Every response carries this disclaimer. Units: mg/dL, grams, METs.")
     app.state.settings, app.state.engine, app.state.session_factory = settings, engine, session_factory(engine)
+    app.state.login_throttle, app.state.guest_throttle = Throttle(5, 15 * 60), Throttle(20, 60 * 60)    # failed sign-ins per email / guests per address
 
     @app.exception_handler(ServiceError)
     def _service_error(_request: Request, exc: ServiceError):
-        return JSONResponse(status_code=exc.status, content={"detail": exc.message, "disclaimer": DISCLAIMER})
+        return JSONResponse(status_code=exc.status, content={"detail": exc.message, "disclaimer": DISCLAIMER}, headers=exc.headers)
 
     app.include_router(health.router)
+    app.include_router(auth.router)
     app.include_router(twins.router)
     return app
 

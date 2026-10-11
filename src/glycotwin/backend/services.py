@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from glycotwin.backend import DISCLAIMER
 from glycotwin.backend.config import Settings
-from glycotwin.backend.models import DataQualityFlag, ForecastRow, ObservationRow, ParameterSnapshot, ReconciliationRow, Twin, TwinStateRow, WhatIfRun
+from glycotwin.backend.models import DataQualityFlag, ForecastRow, ObservationRow, ParameterSnapshot, ReconciliationRow, Twin, TwinOwner, TwinStateRow, WhatIfRun
 from glycotwin.backend.priors import PriorError, demo_prior, load_prior_file
 from glycotwin.backend.store import AsOfStore, SqlTwinStore, forecast_row_to_record
 from glycotwin.features import GLUCOSE_THRESHOLD_MG_DL, OUTCOME_WINDOW
@@ -38,9 +38,9 @@ WINDOW = timedelta(seconds=OUTCOME_WINDOW.total_seconds())
 
 
 class ServiceError(Exception):
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, headers: Optional[dict] = None):
         super().__init__(message)
-        self.status, self.message = status, message
+        self.status, self.message, self.headers = status, message, headers
 
 
 @lru_cache(maxsize=1)
@@ -117,7 +117,8 @@ def model_version(twin: Twin) -> str:
 
 # ----------------------------------------------------------------------------- twins
 
-def create_twin(session: Session, settings: Settings, req) -> dict:
+def create_twin(session: Session, settings: Settings, req, owner_id: Optional[str] = None) -> dict:
+    """owner_id is always given by the API (the signed-in user). Only offline scripts may create an unowned twin, which stays hidden until claimed."""
     if session.scalars(select(Twin).where(Twin.label == req.label)).first() is not None:
         raise ServiceError(409, "a twin with this label already exists")
     try:
@@ -139,6 +140,8 @@ def create_twin(session: Session, settings: Settings, req) -> dict:
                          is_synthetic=bool(prov.get("SYNTHETIC", False))))
         session.flush()
         SqlTwinStore(session, tid).initialize_twin(tid, prior_b, prior_c, profile)
+        if owner_id is not None:
+            session.add(TwinOwner(twin_id=tid, user_id=owner_id, source="created"))
     return get_twin(session, tid)
 
 

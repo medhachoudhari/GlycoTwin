@@ -8,6 +8,9 @@ observations            the observed outcome submitted for a forecast (at most o
 reconciliations         the result of reconciling a forecast with its observation (at most one per forecast and per observation)
 what_if_runs            hypothetical scenarios and results; never linked to a state change
 data_quality_flags      forecast-time and observation-time quality findings, with their stage
+users                   accounts: name, unique lower-case email, scrypt password hash (NULL for temporary guest accounts)           [added for sign-in]
+sessions                one row per sign-in: SHA-256 of the session token, expiry, revocation                                         [added for sign-in]
+twin_owners             which account owns which twin (twin_id is the primary key: a twin has at most one owner; a twin with no row is hidden)  [added for ownership]
 Uniqueness constraints are the duplicate-processing guards: (twin_id, event_id), (twin_id, version), one observation and one reconciliation per forecast.
 No raw CGM traces are stored; only the per-meal summaries the engine needs.
 """
@@ -155,4 +158,38 @@ class DataQualityFlag(Base):
     stage: Mapped[str] = mapped_column(String(16))                             # forecast | observation
     code: Mapped[str] = mapped_column(String(48))
     message: Mapped[str] = mapped_column(String(400))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class User(Base):
+    """An account. Added with `create_all` only: no existing table is altered. Guests have no email and no password and cannot sign in again."""
+    __tablename__ = "users"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    email: Mapped[Optional[str]] = mapped_column(String(254), unique=True, index=True, nullable=True)      # stored lower-case; several NULLs (guests) are allowed
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_guest: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    sessions: Mapped[list["UserSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+
+class UserSession(Base):
+    __tablename__ = "sessions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)                    # SHA-256 hex of the cookie token; the token itself is never stored
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    user: Mapped[User] = relationship(back_populates="sessions")
+
+
+class TwinOwner(Base):
+    """Ownership link kept in its own table so the existing `twins` table is not altered. A twin with NO row here is unowned: no API route will show it to anyone
+    until it is claimed with scripts/claim_twin.py. twin_id is the primary key, so a second owner can never be added, and nothing here is ever updated in place."""
+    __tablename__ = "twin_owners"
+    twin_id: Mapped[str] = mapped_column(ForeignKey("twins.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(16), default="created")                  # created (made while signed in) | claimed (assigned later by the claim script)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

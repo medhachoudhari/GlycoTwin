@@ -27,13 +27,30 @@ from glycotwin.twin.state import TwinStore, forecast_meal, reconcile_forecast
 
 ROOT = Path(__file__).resolve().parents[1]
 T0 = datetime(2026, 1, 1, 8, 0)
-TABLES = {"twins", "twin_states", "parameter_snapshots", "forecasts", "observations", "reconciliations", "what_if_runs", "data_quality_flags"}
+TABLES = {"twins", "twin_states", "parameter_snapshots", "forecasts", "observations", "reconciliations", "what_if_runs", "data_quality_flags",
+          "users", "sessions", "twin_owners"}                            # the last three were ADDED (accounts, sessions, ownership); the eight before them are unchanged (tests/test_auth.py, tests/test_ownership.py)
 
 
 def make_app(tmp_path, url=None):
     prior_dir = tmp_path / "priors"
     prior_dir.mkdir(exist_ok=True)
     return create_app(Settings(database_url=url or f"sqlite:///{(tmp_path / 'db.sqlite3').as_posix()}", prior_dir=prior_dir))
+
+
+# Every twin route now requires a signed-in owner, so these tests use a client that is signed in as one fixed test user. Their assertions are unchanged.
+USER = {"name": "Backend Tester", "email": "backend.tester@example.com", "password": "backend-test-passphrase"}
+
+
+def sign_in(client):
+    r = client.post("/auth/register", json=USER)
+    if r.status_code == 409:                                                                     # the same test user on an existing database file
+        r = client.post("/auth/login", json={"email": USER["email"], "password": USER["password"]})
+    assert r.status_code in (200, 201), r.text
+    return client
+
+
+def authed_client(app, **kw):
+    return sign_in(TestClient(app, **kw))
 
 
 @pytest.fixture
@@ -43,7 +60,7 @@ def app(tmp_path):
 
 @pytest.fixture
 def client(app):
-    return TestClient(app)
+    return authed_client(app)
 
 
 def new_twin(client, label="tw-1", **kw):
@@ -78,7 +95,7 @@ def session_of(app):
 
 def test_tables_created_idempotently_and_foreign_keys_enforced(app, tmp_path):
     assert TABLES <= set(inspect(app.state.engine).get_table_names())
-    c = TestClient(app)
+    c = authed_client(app)
     tid = new_twin(c)
     make_app(tmp_path)                                                       # second initialisation on the same file: nothing dropped
     with session_of(app) as s:
@@ -102,10 +119,10 @@ def test_version_zero_has_both_parameter_snapshots_and_the_relationships_navigat
 
 
 def test_state_persists_across_application_restarts(tmp_path):
-    c1 = TestClient(make_app(tmp_path))
+    c1 = authed_client(make_app(tmp_path))
     tid = new_twin(c1)
     cycle(c1, tid, 0)
-    c2 = TestClient(make_app(tmp_path))                                      # a new process on the same SQLite file
+    c2 = authed_client(make_app(tmp_path))                                      # a new process on the same SQLite file
     d = c2.get(f"/twins/{tid}/history").json()["data"]
     assert [v["version"] for v in d["versions"]] == [0, 1] and d["versions"][1]["parent_version"] == 0
     assert c2.get(f"/twins/{tid}/forecasts").json()["data"]["total"] == 1
@@ -279,7 +296,7 @@ def _counts(app):
 
 
 def test_a_failure_in_the_middle_of_reconciliation_rolls_everything_back(app, monkeypatch):
-    client = TestClient(app, raise_server_exceptions=False)
+    client = authed_client(app, raise_server_exceptions=False)
     tid = new_twin(client)
     f = client.post(f"/twins/{tid}/forecast", json=meal(0)).json()["data"]
     client.post(f"/twins/{tid}/observe", json={"forecast_id": f["forecast_id"], "observed_through": (T0 + timedelta(minutes=120)).isoformat(), "peak_glucose_mg_dl": 200})
@@ -297,7 +314,7 @@ def test_a_failure_in_the_middle_of_reconciliation_rolls_everything_back(app, mo
 
 
 def test_a_failure_while_storing_a_forecast_leaves_nothing_behind(app, monkeypatch):
-    client = TestClient(app, raise_server_exceptions=False)
+    client = authed_client(app, raise_server_exceptions=False)
     tid = new_twin(client)
     real = SqlTwinStore.save_forecast
 
@@ -311,7 +328,7 @@ def test_a_failure_while_storing_a_forecast_leaves_nothing_behind(app, monkeypat
 
 
 def test_a_concurrent_version_conflict_is_refused_and_rolled_back(app):
-    client = TestClient(app)
+    client = authed_client(app)
     tid = new_twin(client)
     f = client.post(f"/twins/{tid}/forecast", json=meal(0)).json()["data"]
     client.post(f"/twins/{tid}/observe", json={"forecast_id": f["forecast_id"], "observed_through": (T0 + timedelta(minutes=120)).isoformat(), "peak_glucose_mg_dl": 200})
@@ -405,7 +422,7 @@ def _artifact(prior_dir, name="p.json", **over):
 
 
 def test_prior_files_are_aggregate_only_and_strictly_validated(tmp_path, app):
-    client = TestClient(app)
+    client = authed_client(app)
     prior_dir = app.state.settings.prior_dir
     _artifact(prior_dir, "good.json")
     r = client.post("/twins", json={"label": "file-twin", "prior": {"source": "prior_file", "name": "good.json"}})
@@ -465,8 +482,10 @@ def test_no_endpoint_lists_twins_or_research_participants(app):
     api = set(spec)
     assert api == {"/health", "/twins", "/twins/{twin_id}", "/twins/{twin_id}/history", "/twins/{twin_id}/forecast", "/twins/{twin_id}/forecasts",
                    "/twins/{twin_id}/observe", "/twins/{twin_id}/reconcile", "/twins/{twin_id}/what-if",
-                   "/twins/{twin_id}/forecasts/{forecast_id}/explanation", "/twins/{twin_id}/sensitivity", "/twins/{twin_id}/reconciliations"}
-    assert ("/twins", ("POST",)) in paths                                                # creating, never listing
+                   "/twins/{twin_id}/forecasts/{forecast_id}/explanation", "/twins/{twin_id}/sensitivity", "/twins/{twin_id}/reconciliations",
+                   # accounts and sessions (Stage A): these concern users, never twins or research participants
+                   "/auth/register", "/auth/login", "/auth/guest", "/auth/logout", "/auth/me"}
+    assert ("/twins", ("GET", "POST")) in paths                                          # create, and list ONLY the signed-in user's own twins (tests/test_ownership.py proves the scoping)
     assert all("participant" not in p for p in api)
 
 
@@ -487,7 +506,12 @@ def test_init_db_script_is_safe_to_repeat_and_creates_a_labelled_synthetic_demo(
     assert first["label"] == "demo-synthetic-001" and "SYNTHETIC" in first["note"]
     assert mod.main(["--database-url", url, "--demo"]) == 0
     assert "already present" in json.loads(capsys.readouterr().out)["demo"]
-    client = TestClient(make_app(tmp_path, url))
+    app = make_app(tmp_path, url)
+    client = authed_client(app)
+    assert client.get(f"/twins/{first['demo_twin_id']}/history").status_code == 404           # an unowned twin is hidden from everyone until it is claimed
+    from glycotwin.backend.ownership import claim_twin
+    with session_of(app) as s:
+        claim_twin(s, first["demo_twin_id"], USER["email"], apply=True)
     d = client.get(f"/twins/{first['demo_twin_id']}/history").json()["data"]
     assert len(d["versions"]) == 9 and d["versions"][-1]["parameters"]["C"]["n_observations_used"] == 8
     assert client.get(f"/twins/{first['demo_twin_id']}").json()["data"]["is_synthetic"] is True
@@ -555,7 +579,7 @@ def test_the_unscaled_demo_forecast_would_have_been_misleading(client):
 
 
 def test_prior_file_twins_flag_but_do_not_reject_activity_outside_the_fitted_range(app):
-    client = TestClient(app)
+    client = authed_client(app)
     prior_dir = app.state.settings.prior_dir
     art = _artifact(prior_dir, "ranged.json")
     art["provenance"]["activity_range"] = [1.0, 2.0]
@@ -609,14 +633,14 @@ def test_fresh_initialisation_creates_exactly_the_documented_tables_indexes_and_
     assert ("forecast_id",) in idx["observations"] and ("forecast_id",) in idx["reconciliations"] and ("twin_id", "meal_time") in idx["forecasts"]
     fks = {fk["referred_table"] for fk in insp.get_foreign_keys("forecasts")}
     assert fks == {"twins"}
-    assert TestClient(a).get("/health").json()["status"] == "ok"
+    assert authed_client(a).get("/health").json()["status"] == "ok"
     assert (tmp_path / "new" / "nested" / "fresh.sqlite3").exists()
 
 
 def test_reinitialising_a_populated_database_changes_no_row_and_drops_no_table(tmp_path, capsys):
     url = f"sqlite:///{(tmp_path / 'pop.sqlite3').as_posix()}"
     a = make_app(tmp_path, url)
-    c = TestClient(a)
+    c = authed_client(a)
     t1, t2 = new_twin(c, "keep-1"), new_twin(c, "keep-2")
     cycle(c, t1, 0, peak=200)
     c.post(f"/twins/{t1}/forecast", json=meal(1))
