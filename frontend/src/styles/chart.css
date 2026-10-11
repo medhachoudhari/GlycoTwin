@@ -1,0 +1,37 @@
+.chart-wrap { margin: 0; }
+.rchart { width: 100%; height: auto; display: block; overflow: visible; font-family: var(--font-ui); }
+.rchart text { fill: var(--ink-2); font-size: 12px; }
+.rchart .grid line { stroke: var(--line-s); } .rchart .grid text { fill: var(--ink-3); font: 11px var(--font-mono); }
+.rchart .xaxis line { stroke: var(--ink-3); } .rchart .xaxis text { fill: var(--ink-3); font: 11px var(--font-mono); }
+.rchart .axis-title { fill: var(--ink-3); font-size: 11.5px; letter-spacing: .02em; }
+.rchart .win { fill: color-mix(in srgb, var(--paper) 70%, var(--cream)); stroke: var(--line); stroke-dasharray: 2 4; }
+.rchart .meal { stroke: var(--ink); stroke-width: 1.4; } .rchart .meal-label { font: 600 11px var(--font-mono); letter-spacing: .06em; fill: var(--ink); }
+.rchart .baseline-pre { stroke: var(--ink); stroke-width: 2.4; } .rchart .baseline-ref { stroke: var(--ink-3); stroke-dasharray: 2 5; } .rchart .baseline-dot { fill: var(--ink); }
+.rchart .thr { stroke: var(--role-warning); stroke-width: 1.4; stroke-dasharray: 8 5; } .rchart .thr-label { fill: var(--role-warning); font: 600 11px var(--font-mono); }
+.rchart .mark-label { font: 600 11.5px var(--font-mono); }
+.rchart .note { font: 11.5px var(--font-mono); fill: var(--ink-3); }
+.rchart .panel-title { font: 600 10.5px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; fill: var(--ink-3); }
+.rchart .dens-axis { stroke: var(--ink-3); }
+.rchart .obs line { stroke: var(--teal-d); stroke-width: 2.6; } .rchart .obs circle { fill: var(--teal-d); stroke: var(--paper); stroke-width: 2; } .rchart .obs text { fill: var(--teal-d); font: 600 12px var(--font-mono); }
+.rchart .obs-dot { fill: var(--teal-d); stroke: var(--paper); stroke-width: 2; }
+.rchart g[tabindex]:focus-visible { outline: 2px solid var(--coral-d); outline-offset: 3px; }
+.reveal .fc-reveal { animation: fcReveal 1.1s var(--ease) both; } .reveal .dens { transform-origin: left center; transform-box: fill-box; animation: densGrow .9s var(--ease) .15s both; }
+.reveal .obs { animation: obsIn .6s var(--ease) both; }
+@keyframes fcReveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes densGrow { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+@keyframes obsIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.legend { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
+.chart-note { margin-top: 10px; font-size: 12.5px; color: var(--ink-3); max-width: 90ch; }
+.empty { display: flex; gap: 18px; align-items: center; padding: 36px 28px; border: 1px dashed var(--ink-4); color: var(--ink-3); background: repeating-linear-gradient(135deg, transparent 0 11px, rgba(20,23,15,.025) 11px 12px); }
+.empty h3 { font: 500 22px var(--font-display); color: var(--ink); margin-bottom: 4px; } .empty p { max-width: 62ch; font-size: 14px; } .empty-action { margin-top: 12px; }
+@media (prefers-reduced-motion: reduce) { .reveal .fc-reveal, .reveal .dens, .reveal .obs { animation: none; } }
+@media (max-width: 640px) { .legend { font-size: 13px; } }
+/* Phones: keep the chart legible by letting it scroll inside its own region (the page never scrolls sideways). */
+@media (max-width: 640px) {
+  .chart-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .chart-wrap .rchart { min-width: 700px; }
+  .rchart text { font-size: 13px; } .rchart .mark-label { font-size: 13px; }
+}
+
+/* Paper halo keeps labels legible where they cross hatching or curves. */
+.rchart .mark-label, .rchart .thr-label, .rchart .note, .rchart .obs text { paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; }

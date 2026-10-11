@@ -1,6 +1,6 @@
 # Architecture (as implemented)
 
-Research prototype: in-memory research engine plus a FastAPI + SQLite backend (`docs/BACKEND.md`); no frontend yet. Not clinically validated; no medical advice.
+Research prototype: in-memory research engine plus a FastAPI + SQLite backend (`docs/BACKEND.md`); a React + Vite research dashboard in `frontend/` (see `frontend/README.md`). Investigational research prototype: not clinically validated, not a medical device, no medical advice.
 
 ```
 raw CSVs (local, never in Git)

@@ -76,4 +76,4 @@ rejected outside that range but the forecast carries a low-data-quality reason, 
 All four reuse the existing read-only `twin.insight` / `twin.state_view` functions; no new uncertainty formula, confidence level, or clinical claim was added.
 
 ## Not included
-Authentication, migrations (tables are created if missing; schema changes would need a migration tool), the React frontend (next phase), and any real-data validation.
+Authentication, migrations (tables are created if missing; schema changes would need a migration tool), and any real-data validation. The React research dashboard lives in `frontend/` (`frontend/README.md`); it only displays what these endpoints return and is an investigational research prototype, not a clinically validated medical device.

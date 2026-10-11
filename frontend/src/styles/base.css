@@ -1,0 +1,55 @@
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+body { margin: 0; background: var(--ivory); color: var(--ink); font: 400 16px/1.55 var(--font-ui); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+img, svg, canvas { display: block; max-width: 100%; }
+h1, h2, h3, h4 { margin: 0; font-weight: 500; letter-spacing: -0.01em; }
+p { margin: 0; }
+a { color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.display { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.025em; line-height: 0.98; }
+.mono { font-family: var(--font-mono); font-size: 0.84em; letter-spacing: 0; }
+.eyebrow { font: 600 11px/1 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+:focus-visible { outline: 2px solid var(--coral-d); outline-offset: 2px; border-radius: 2px; }
+.on-dark :focus-visible { outline-color: var(--gold-l); }
+.skip { position: absolute; left: 8px; top: -60px; z-index: 100; background: var(--ink); color: var(--ivory); padding: 10px 14px; transition: top .15s; }
+.skip:focus { top: 8px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 20px; border: 1px solid var(--ink); background: transparent;
+  color: var(--ink); font-weight: 600; font-size: 14px; letter-spacing: 0.01em; cursor: pointer; text-decoration: none; border-radius: 999px; transition: transform .2s var(--ease), background .2s, color .2s, border-color .2s; }
+.btn:hover:not(:disabled) { background: var(--ink); color: var(--ivory); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn.primary { background: var(--coral-d); border-color: var(--coral-d); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: var(--ink); border-color: var(--ink); }
+.btn.sm { min-height: 36px; padding: 0 14px; font-size: 13px; }
+.btn.quiet { border-color: var(--line); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.on-dark .btn { border-color: var(--ivory); color: var(--ivory); }
+.on-dark .btn:hover:not(:disabled) { background: var(--ivory); color: var(--ink); }
+.on-dark .btn.primary { background: var(--coral); border-color: var(--coral); color: #1a0d09; }
+
+.field { display: grid; gap: 6px; }
+.field > label, .field > .lab { font: 600 12px/1.2 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+.field .hint { font-size: 12px; color: var(--ink-3); }
+.field .err { font-size: 12.5px; color: var(--role-error); font-weight: 600; }
+.input { width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--paper); }
+.input:hover { border-color: var(--ink-3); }
+.input[aria-invalid="true"] { border-color: var(--role-error); background: #fdf3f0; }
+.input:disabled { opacity: .6; }
+
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border: 1px solid currentColor; border-radius: 999px; font: 600 11px/1.5 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+.pill.forecast { color: var(--role-forecast); } .pill.observed { color: var(--role-observed); } .pill.ok { color: var(--role-ok); }
+.pill.warn { color: var(--role-warning); } .pill.err { color: var(--role-error); } .pill.muted { color: var(--ink-3); } .pill.unc { color: #8a6a1a; }
+
+.notice { display: flex; gap: 10px; padding: 12px 14px; border: 1px solid; border-left-width: 4px; background: var(--paper); font-size: 14px; }
+.notice.err { border-color: var(--role-error); } .notice.warn { border-color: var(--role-warning); } .notice.ok { border-color: var(--role-ok); } .notice.info { border-color: var(--ink-3); }
+.notice strong { display: block; }
+
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  .spinner { animation: none; border-right-color: currentColor; opacity: .6; }
+}

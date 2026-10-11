@@ -1,0 +1,24 @@
+/* GlycoTwin design tokens: warm ivory paper, ink, sage/olive, muted gold, one restrained vermilion accent.
+   Semantic roles are always paired with a label or a mark, never colour alone. */
+:root {
+  --ivory: #f4efe3; --cream: #ebe3d0; --paper: #fbf9f3; --paper-2: #f7f3e8;
+  --ink: #14170f; --ink-2: #2b3022; --ink-3: #565b4a; --ink-4: #7d8270;
+  --sage: #8da184; --sage-d: #6d8264; --olive: #5c6b3a; --olive-d: #3f4b27;
+  --gold: #c99a3b; --gold-l: #e6c982; --amber: #d98b2b;
+  --coral: #e2553b; --coral-d: #b83d27;
+  --teal: #2f7f7a; --teal-d: #1f5c58;
+  --line: rgba(20, 23, 15, 0.16); --line-s: rgba(20, 23, 15, 0.08); --line-d: rgba(244, 239, 227, 0.2);
+  --night: #0f130d; --night-2: #171c13; --night-3: #212818;
+
+  --role-forecast: var(--coral-d); --role-observed: var(--teal-d); --role-uncertain: var(--gold); --role-warning: #9a5a0c; --role-ok: var(--olive-d); --role-error: #a8281a;
+
+  --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --font-ui: "Inter", "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+
+  --r-s: 3px; --r-m: 8px; --r-l: 22px;
+  --shadow-1: 0 1px 0 rgba(20, 23, 15, 0.06), 0 8px 24px -12px rgba(20, 23, 15, 0.22);
+  --shadow-2: 0 2px 0 rgba(20, 23, 15, 0.05), 0 28px 60px -28px rgba(20, 23, 15, 0.45);
+  --gutter: clamp(16px, 4vw, 56px);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
