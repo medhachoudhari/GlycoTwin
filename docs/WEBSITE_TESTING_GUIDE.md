@@ -5,14 +5,16 @@
 > Passing every test in this guide shows that the *website works as built*. It does **not** show that the model is scientifically valid or clinically safe. Nothing here is clinically validated.
 
 **Audience:** a student developer testing the whole site by hand, as a user, a developer and a hackathon evaluator.
-**Source of truth:** the repository at the time of writing (commit `5ab05a4` plus the **uncommitted** dark landing page, Sign In and Create Account changes described below; run `git status` to see whether they have been committed on your copy). Where something could not be confirmed, this guide says so.
+**Source of truth:** the repository at the time of writing: commit `49e9402` **plus the account, ownership and frontend-integration changes (Stages A to D) that were uncommitted when this was written**. Run `git log -1 --oneline` and `git status` to see which commit you have; if your copy is older than these changes, the account tests below will not match it. Where something could not be confirmed, this guide says so.
+
+**Important change:** the Sign In and Create Account pages are now **real**. They talk to the backend, every dashboard page needs a signed-in account (a registered account or a temporary guest), and each account sees only its own twins. Earlier versions of this guide described them as preview-only; that is no longer true.
 
 ### How to read the evidence labels
 
 | Label | Meaning |
 |---|---|
 | **[Code]** | Read directly from the source files (frontend, backend, schemas, docs). |
-| **[Run]** | Observed by the author of this guide while running the real backend (temporary SQLite database) and the real frontend on Linux, driven by an automated Chromium script and `curl`. It was **not** observed on your Windows machine. |
+| **[Run]** | Observed by the author of this guide while running the real backend (temporary SQLite database) and the real frontend on Linux, driven by an automated Chromium script, `curl` and Python test scripts. It was **not** observed on your Windows machine. |
 | **[Unverified]** | Expected from the code but not observed. You must check it yourself and write down what you see. |
 
 Numbers marked **[Run]** came from the *synthetic demonstration prior* and were identical in two separate runs, but they depend on the engine version. **Never use a number in this guide as a pass/fail criterion.** The pass criterion is always: *the screen matches what the backend actually returned* (see Section 7 for how to look at the backend response).
@@ -49,8 +51,8 @@ The model (from the landing page and `docs/BACKEND.md`): `rise = (β + γ · act
 ### 1.2 What the frontend and backend each do
 | Part | Technology | Job |
 |---|---|---|
-| Backend (`src/glycotwin/backend/`) | FastAPI + SQLite (SQLAlchemy) + Pydantic | Holds the twin database, validates every request, calls the research engine, enforces the lifecycle rules. Every success reply has the shape `{ "disclaimer": ..., "data": ... }`; errors have `{ "detail": ..., "disclaimer": ... }` (validation errors may carry a list in `detail`). `/health` is **not** wrapped in `data`. **[Code][Run]** |
-| Frontend (`frontend/`) | React 19 + Vite 6 + TypeScript | Dark-themed landing page, **preview-only** Sign In and Create Account pages, and a research dashboard (light theme with a dark sidebar). It only **displays** what the backend returns. It does **not** re-implement the Bayesian model and does not invent glucose curves. **[Code]** |
+| Backend (`src/glycotwin/backend/`) | FastAPI + SQLite (SQLAlchemy) + Pydantic | Holds the twin database and the user accounts, validates every request, signs users in, enforces that each twin is visible only to its owner, calls the research engine and enforces the lifecycle rules. Every success reply has the shape `{ "disclaimer": ..., "data": ... }`; errors have `{ "detail": ..., "disclaimer": ... }` (validation errors may carry a list in `detail`). `/health` is **not** wrapped in `data`. **[Code][Run]** |
+| Frontend (`frontend/`) | React 19 + Vite 6 + TypeScript | Dark-themed landing page, **real** Sign In and Create Account pages, and a research dashboard (light theme with a dark sidebar) that is available only to signed-in users. It only **displays** what the backend returns. It does **not** re-implement the Bayesian model and does not invent glucose curves. **[Code]** |
 
 ### 1.3 How the browser reaches FastAPI (the Vite proxy)
 The backend has **no CORS configuration**, so the browser must not call it directly from another origin. Instead:
@@ -69,13 +71,13 @@ Browser  ──>  http://127.0.0.1:5173/api/twins/...   (Vite dev server, "/api"
 ### 1.3b Page addresses (hash routes)
 The app uses one router that reads the part of the address after `#` (so refresh and direct links work with any static host). **[Code][Run]**
 
-| Address | Page | Notes |
+| Address | Page | Who may open it |
 |---|---|---|
-| `#/` | Landing page | Section anchors: `#/product`, `#/research`, `#/how`, `#/docs` scroll to that section |
-| `#/login` | Sign In (preview only) | Not a real login: see Section 3 AU cases |
-| `#/register` | Create Account (preview only) | Not a real registration |
-| `#/app/home`, `#/app/twin`, `#/app/forecast`, `#/app/observations`, `#/app/history`, `#/app/insights`, `#/app/settings` | Dashboard pages | Unknown `#/app/...` names show Home |
-| `#/forgot-password` | **Does not exist** | There is no recovery flow; opening it just shows the landing page |
+| `#/` | Landing page. Anchors `#/product`, `#/research`, `#/how`, `#/docs` scroll to that section | everyone |
+| `#/login` | Sign In (real) | everyone; a signed-in user is sent to `#/app/home` |
+| `#/register` | Create Account (real) | everyone; a signed-in user is sent to `#/app/home` |
+| `#/app/home`, `#/app/twin`, `#/app/forecast`, `#/app/observations`, `#/app/history`, `#/app/insights`, `#/app/settings` | Dashboard pages | **signed-in users only**; a signed-out visitor is sent to `#/login`. Unknown `#/app/...` names show Home |
+| `#/forgot-password` | **Does not exist** | there is no recovery flow; opening it just shows the landing page |
 
 Use `#/login`, not `/login`: a path without `#` is not a route in this app. Do not expect dedicated 404 pages. **[Code]**
 
@@ -83,17 +85,18 @@ Use `#/login`, not `/login`: a path without `#` is not a route in this app. Do n
 ```
 GlycoTwin/                       <- PROJECT ROOT (contains pyproject.toml)
 ├─ pyproject.toml, requirements.txt
-├─ src/glycotwin/backend/        app.py, routers/twins.py, schemas.py, services.py, store.py, config.py
+├─ src/glycotwin/backend/        app.py, routers/{auth,twins}.py, schemas.py, services.py, store.py, config.py,
+                                 security.py, auth_service.py, ownership.py, deps.py, models.py
 ├─ src/glycotwin/twin/           research engine (state, insight, state_view, quality)
 ├─ scripts/init_db.py            creates tables; --demo adds a SYNTHETIC demo twin
 ├─ tests/                        Python tests (backend tests use temporary databases)
 ├─ docs/                         BACKEND.md, ARCHITECTURE.md, BLUEPRINT_CONFORMANCE.md, PROJECT_STATUS.md, model_card.md, this guide
 ├─ data/                         git-ignored participant data folders. DO NOT open, copy or commit anything here.
 └─ frontend/                     <- FRONTEND DIRECTORY (contains package.json)
-   ├─ src/App.tsx, main.tsx, pages/Landing.tsx, pages/Auth.tsx (Sign In + Create Account, preview only)
+   ├─ src/App.tsx, main.tsx, pages/Landing.tsx, pages/Auth.tsx (Sign In + Create Account, real), auth/AuthContext.tsx
    ├─ src/dashboard/             Shell, views, forms, panels, ResponseChart, workspace
    ├─ src/api/                   client.ts, types.ts, validate.ts
-   └─ src/test/                  frontend tests (11)
+   └─ src/test/                  frontend tests (37)
 ```
 **Where the database lives by default:** `data/interim/glycotwin_backend.sqlite3` (git-ignored). Twins you create while testing are saved there. They are harmless demo data, but see 4.1 if you want a throw-away database. **[Code]**
 
@@ -124,19 +127,27 @@ npm run dev
 ```
 Vite prints a local URL. The configured default is `http://127.0.0.1:5173`. If port 5173 is busy, Vite may choose another port and print it; **use the URL Vite prints**. (`strictPort` is not set in `vite.config.ts`.) **[Code]**
 
+### 1.6b Accounts, your real database, and a throw-away test database
+* **Every dashboard test needs a signed-in account.** Use fake demonstration details only: for example name `Test Person`, email `test.person@example.com` (use a different email for a second account), password `windows-test-pass-1` (at least 10 characters). Never use a real password or personal data.
+* **Back up your real database before the first run with the account-enabled backend.** In PowerShell: `Copy-Item data\interim\glycotwin_backend.sqlite3 data\interim\glycotwin_backend.backup.sqlite3` (adjust the path if you changed `GLYCOTWIN_DATABASE_URL`). The new code only **adds** three tables (`users`, `sessions`, `twin_owners`) and never changes existing rows, but a copy is your rollback.
+* **Twins that already exist in your real database have no owner and are hidden** from every account until you claim them with `scripts\claim_twin.py` (case CL-01). That is intentional: nothing is given to the first person who registers.
+* **To test without touching your real database,** set a throw-away database in Window 1 before starting the backend (Section 4.1): `$env:GLYCOTWIN_DATABASE_URL = "sqlite:///" + ($env:TEMP -replace '\\','/') + "/glycotwin_test.sqlite3"`. Use a different file name for each fresh start.
+* Keep the backend on `127.0.0.1` (the default in the commands above). It has no TLS and has not been security-audited; do not expose it to a network.
+
 ### 1.7 Confirm both services are running
 | Check | Open this | Expected |
 |---|---|---|
-| Backend alive | `http://127.0.0.1:8000/health` | JSON with `"status": "ok"`, `"database": "ok"`, a list of 8 `tables`, an `engine` block. **[Run]** |
+| Backend alive | `http://127.0.0.1:8000/health` | JSON with `"status": "ok"`, `"database": "ok"`, a list of 11 `tables` (8 research tables + `users`, `sessions`, `twin_owners`), an `engine` block. **[Run]** |
 | Backend docs | `http://127.0.0.1:8000/docs` | Swagger page listing the routes in Section 7. **[Run]** |
 | Frontend | `http://127.0.0.1:5173/` | Dark landing page "Your metabolism has a story. Let's model it." with both buttons visible on the first screen |
-| Sign in / Create account pages | `http://127.0.0.1:5173/#/login` and `#/register` | The preview-only forms (Section 3, AU cases). Direct address entry and **F5** must keep you on the same page. |
+| Sign in / Create account pages | `http://127.0.0.1:5173/#/login` and `#/register` | The real forms (Section 3, AU cases). Direct address entry and **F5** must keep you on the same page. |
+| Account endpoints | `http://127.0.0.1:8000/auth/me` | `{"detail":"not signed in",...}` (401) when nobody is signed in. **[Run]** |
 | Proxy works | `http://127.0.0.1:5173/api/health` | The same JSON as the first row. **[Run]** |
 | Landing page sees the backend | Landing hero, "Backend" line | `online · database ok` (offline shows `not running`). **[Code][Run]** |
 
 ### 1.8 Stop and restart
 * Stop a server: click its PowerShell window and press **Ctrl + C**.
-* Restart: run the same command again. The twin database persists between restarts (initialisation only creates missing tables and never drops or deletes; this is tested). **[Code]**
+* Restart: run the same command again. The database persists between restarts (initialisation only creates missing tables and never drops or deletes; this is tested), so accounts, twins and history survive. Browser sessions also survive a backend restart (they are stored in the database), until they expire. **[Code]**
 * After restarting the backend, **refresh the browser page** so the frontend reloads its data.
 
 ### 1.9 Common startup errors
@@ -154,7 +165,7 @@ The **landing page and the Sign In / Create Account pages** use a dark editorial
 ### 2.1 Landing page (`http://127.0.0.1:5173/#/`)
 | # | Section / element | Purpose | How to reach |
 |---|---|---|---|
-| L1 | Compact top navigation (about 58 px high): brand "GlycoTwin", **Product**, **Research**, **How it works**, **Documentation**, **Sign in** (goes to `#/login`), coral **Launch App** (goes to `#/app/home`) | Navigation | Top of page (sticky). On narrow screens the links hide behind a **Menu** button. |
+| L1 | Compact top navigation (about 58 px high): brand "GlycoTwin", **Product**, **Research**, **How it works**, **Documentation**, **Sign in** (goes to `#/login`; when you are signed in it reads "Hi, <first name>" and goes to the workspace), coral **Launch App** (goes to `#/app/home`; signed-out visitors are then redirected to `#/login`) | Navigation | Top of page (sticky). On narrow screens the links hide behind a **Menu** button. |
 | L2 | Compact two-column hero. Left: eyebrow "LIVING INTELLIGENCE · RESEARCH PROTOTYPE", three-line headline "Your metabolism / has a *story.* / Let's model it." (*story.* in italic coral), short paragraph, coral **Open the application** button and outlined **Explore the research** button | Introduction and calls to action. Both buttons should be visible **without scrolling** on a 1440 × 900 or 1280 × 800 screen | First screen |
 | L3 | Hero status strip: **Model family**, **Engine**, **Backend** (with a green/amber/red status dot **and** words) | Shows live data from `/health` (engine version, short commit, backend status) | Under the buttons; fits inside the first screen on desktop |
 | L4 | Organic artwork on the right with three callout boxes: *01 Forecast*, *02 Observe*, *03 Update* | Visual summary of the loop; hidden from screen readers (`aria-hidden`) | Right of hero (below the text on tablet and mobile) |
@@ -169,7 +180,7 @@ The **landing page and the Sign In / Create Account pages** use a dark editorial
 |---|---|---|
 | S1 | "Skip to content" link | Keyboard shortcut past the sidebar (appears on first Tab) |
 | S2 | Left sidebar: brand (back to landing), nav **Home, My Twin, Forecast, Observations, History, Insights, Settings** | Navigation; current page marked `aria-current` |
-| S3 | Sidebar footer: **Backend** status pill (OK / degraded / Unreachable / Checking) and **Active twin** name | Quick status |
+| S3 | Sidebar footer: **Backend** status pill (OK / degraded / Unreachable / Checking); **Signed in** box with your name, a **Guest** badge for guest accounts, a guest-mode note, and a **Log out** button; **Open twin** name | Quick status and sign-out |
 | S4 | Persistent disclaimer bar at the top of the main column (label "RESEARCH PROTOTYPE" + verbatim text) | Always visible disclaimer |
 | S5 | Red "Backend not reachable" banner | Shown when the health check fails |
 | S6 | Hidden live-region (screen-reader announcements) | Announces action results such as "Twin updated: version 0 → 1." Visible only in DevTools; `data-testid="announcer"` |
@@ -178,27 +189,27 @@ The **landing page and the Sign In / Create Account pages** use a dark editorial
 ### 2.3 Dashboard pages
 | Page (address) | Panels, controls and states |
 |---|---|
-| **Home** (`#/app/home`) | Twin header + pills; four stat cards (**Twin version, Meals observed, Awaiting outcome, Last forecast**); **Glucose response** chart with **Both models / Model C / Model B** buttons; **Recent activity** list; **Next step** panel. Empty state: "No twin selected" with a **Create or open a twin** button. |
+| **Home** (`#/app/home`) | Twin header + pills; four stat cards (**Twin version, Meals observed, Awaiting outcome, Last forecast**); **Glucose response** chart with **Both models / Model C / Model B** buttons; **Recent activity** list; **Next step** panel. Empty state for an account with no twins: "You don't have a twin yet" with a **Create your first twin** button. |
 | **My Twin** (`#/app/twin`) | Twin header; **Personalised parameters** table (Model B β; Model C β + γ·a at reference activity; Model C β; Model C γ) with mean and SD; **Version history**; **Provenance** (prior source, scheme, participant-level data flag, reference activity); an info box "Not available from this backend" listing state parts the backend does not provide. |
 | **Forecast** (`#/app/forecast`) | **Meal** form (Carbohydrate (g), Pre-meal activity, Pre-meal glucose (mg/dL), Meal time (UTC), **Request forecast**); **Glucose response** chart; **Numbers behind the chart** table + data-quality notice; **Why this forecast?** (Model C / Model B toggle; plain-language lines; term table); **Compare scenarios** (what-if). |
 | **Observations** (`#/app/observations`) | **Record an outcome** form (Forecast selector, Observed through (UTC), checkbox **Exclude this meal (data unusable)**, Observed maximum glucose in the window (mg/dL), Window completeness (0 to 1), **Record outcome**); **Apply to the twin** panel (list of recorded outcomes with **Apply** buttons). |
 | **History** (`#/app/history`) | **Forecasts** table (Meal (UTC), Carbs g, P(max ≥ 180) C / B, Status, **Show**); **How the twin's parameters changed** chart; **Hit rate so far** (+ excluded meals list). |
 | **Insights** (`#/app/insights`) | **How activity changes this twin's carbohydrate sensitivity** (Activity values field + **Update**, sensitivity chart); **Forecast versus outcome** table. |
-| **Settings** (`#/app/settings`) | **Create a twin** form (Twin label, Prior source, Prior scheme, **Create twin**); **Open an existing twin** (Twin id, **Open twin**); **Twins in this browser** (**Use**, **Forget**); **Backend** (API base URL, Status, Engine); verbatim disclaimer block. |
+| **Settings** (`#/app/settings`) | **Account** (name, email or "Temporary guest account", **Log out**); **Create a twin** form (Twin label, Prior source, Prior scheme, **Create twin**); **My twins** (your own twins from the backend, each with an **Open** button; empty and error states with **Try again**); **Backend** (API base URL, Status, Engine); verbatim disclaimer block. |
 
-**Demonstration-mode note (S8):** the sidebar footer on every dashboard page says "Demonstration mode: no account. Twins are not private to a user." **[Code][Run]**
+**Guest-mode note (S8):** for a guest account the sidebar says "Guest mode: a temporary account for demonstration. Its twins belong only to this guest and are lost to you when it ends." and shows a Guest badge. Registered accounts show their name and no guest note. **[Code][Run]**
 
-### 2.3b Sign In and Create Account pages (preview only)
+### 2.3b Sign In and Create Account pages (real)
 | Page | Elements |
 |---|---|
-| **Sign In** (`#/login`) | Brand link (top left), **← Back to home** (top right); left side: "Welcome back" + "Continue your research journey with GlycoTwin." + organic artwork; right panel: heading **Sign in**, "Access your GlycoTwin account", a **PREVIEW** notice ("Accounts are not available yet: this research prototype has no account system, so nothing you type here is sent or stored."), fields **Email address** and **Password** (with a **Show password** eye button), button **Sign in →**, a divider "or", button **Continue as demo**, a note about demonstration mode, link "Don't have an account? **Create one**"; footer disclaimer bar. |
-| **Create Account** (`#/register`) | Same frame; left: "Create your account" + "Start exploring personalised glucose responses with GlycoTwin."; panel: **Create account**, "Join GlycoTwin and start modelling.", the PREVIEW notice, fields **Full name**, **Email address**, **Password**, **Confirm password** (each password field has an eye button), a checkbox "I understand GlycoTwin is an investigational research prototype, not a medical device.", button **Create account →**, **Continue as demo**, link "Already have an account? **Sign in**". |
-| **Deliberately absent** | Remember me, Forgot password, social sign-in, terms/privacy links (no such pages exist), any "signed in" or "welcome" state, any loading spinner (nothing is sent), any user menu or Log out. |
+| **Sign In** (`#/login`) | Brand link (top left), **← Back to home** (top right); left side: "Welcome back" + "Continue your research journey with GlycoTwin." + organic artwork; right panel: heading **Sign in**, "Access your GlycoTwin account", an optional notice (for example "Your session has ended. Please sign in again."), fields **Email address** and **Password** (with a **Show password** eye button), a form-level error area, button **Sign in →** (shows "Signing in…" while the request runs), a divider "or", button **Continue as demo** with an explanation of guest accounts, link "Don't have an account? **Create one**"; footer disclaimer bar. |
+| **Create Account** (`#/register`) | Same frame; left: "Create your account" + "Start exploring personalised glucose responses with GlycoTwin."; panel: **Create account**, "Join GlycoTwin and start modelling.", fields **Full name**, **Email address**, **Password** (placeholder "At least 10 characters"), **Confirm password** (each password field has an eye button), a checkbox "I understand GlycoTwin is an investigational research prototype, not a medical device.", button **Create account →** (shows "Creating account…"), **Continue as demo**, link "Already have an account? **Sign in**". |
+| **Deliberately absent** | Remember me, Forgot password (no recovery flow exists), social sign-in, terms/privacy links (no such pages exist), email verification, account deletion. |
 
-**What these pages do:** they check the input in your browser and then tell you that sign-in / account creation is **not available**. **No request is sent to the backend, no account is created, nobody is signed in, and the typed password is cleared.** The backend has no account system. **[Code][Run]**
+**What these pages do:** they check the input in your browser, then call `POST /auth/register` or `POST /auth/login`. Success is shown only after the backend confirms it; the session is an **HttpOnly cookie** (page scripts cannot read it) and the passwords are never stored in the browser. **Continue as demo** calls `POST /auth/guest` and creates a temporary guest account. **[Code][Run]**
 
 ### 2.4 API-backed features
-Every dashboard page except Settings' static text calls the backend. Mapping to endpoints is in Section 7. Page-load calls on every twin switch: `GET /twins/{id}`, `/forecasts`, `/history`, `/reconciliations`. **[Code]**
+Every dashboard page except Settings' static text calls the backend. Mapping to endpoints is in Section 7. On start-up the app calls `GET /auth/me` (restore the session) and `GET /twins` (your twins); on every twin switch it calls `GET /twins/{id}`, `/forecasts`, `/history`, `/reconciliations`. All of these (except `/health` and the sign-in calls) need your session cookie. **[Code]**
 
 ### 2.5 State catalogue (what you should be able to see)
 | State | Where it appears |
@@ -206,10 +217,12 @@ Every dashboard page except Settings' static text calls the backend. Mapping to 
 | Loading | "Loading twin" (spinner), "Loading explanation", "Requesting a forecast…", button labels like "Creating…", "Forecasting…", "Recording…", "Applying…", "Comparing…", "Loading…" |
 | Empty | Home/My Twin etc.: "No twin selected"; chart: "No forecast to draw yet"; Observations: "No forecast is waiting for an outcome."; History: "No forecasts yet."; Insights: "No reconciled meals yet…" |
 | Success | Green notices: "Twin “…” created at version 0.", "Forecast stored from twin version N.", "Observation recorded. The twin has not been updated yet.", "Twin updated: version A → B." |
-| Error | Red notices/inline field errors (client-side range checks) and backend messages (404 "twin not found", 409 conflicts, 422 validation, network error with the uvicorn start command) |
+| Error | Red notices/inline field errors (client-side range checks) and backend messages (404 "twin not found", 409 conflicts, 422 validation, 401 → back to Sign In with "Your session has ended…", 429 "Too many attempts…", network error with the uvicorn start command, "Cannot reach the backend" with **Try again**) |
 
 ### 2.6 Implemented vs not implemented
-**Not implemented (do not look for them):** real user accounts, authentication or login (the Sign In / Create Account pages are preview-only), password recovery, per-user twin ownership or privacy, logout, a list of all twins on the server (the API deliberately has none), editing or deleting a twin/forecast/observation, importing glucose files or CGMacros data, exporting CSV, a real glucose-over-time trace, notifications, dosing/diet advice (intentionally excluded), a "13-screen" blueprint dashboard (only the 7 pages above), meal-photo features, heart-rate features (the backend lists HR deviation as "not built"). **[Code]**
+**Implemented:** account registration, sign in, sign out, temporary guest accounts, HttpOnly session cookies, scrypt password hashing, session restore after reload, protected dashboard pages, backend-enforced twin ownership (another account gets the same 404 as for a twin that does not exist), `GET /twins` (your own twins only), a one-way claim script for old unowned twins.
+
+**Not implemented (do not look for them):** password recovery ("Forgot password"), email verification, account deletion, "remember me", cleanup of old guest accounts, persistent login rate limits (the counters reset when the backend restarts), per-user twin labels (labels are globally unique), editing or deleting a twin/forecast/observation, importing glucose files or CGMacros data, exporting CSV, a real glucose-over-time trace, notifications, dosing/diet advice (intentionally excluded), a "13-screen" blueprint dashboard (only the 7 pages above), meal-photo features, heart-rate features (the backend lists HR deviation as "not built"), an administrator role, any external security audit. **[Code]**
 
 **Exposed by the API but with no UI control:** `reference_activity` and `glycaemic_group` on twin creation; optional forecast fields `activity_coverage`, `baseline_age_minutes`, `trend_slope_30min`, `time_since_last_meal_min`; `limit`/`offset` on the forecast list (UI loads up to 100); `reference_activity` query on `GET /twins/{id}` and `/history`; gamma width for the blueprint prior. Use `/docs` to try them. **[Code]**
 
@@ -282,70 +295,112 @@ Every dashboard page except Settings' static text calls the backend. Mapping to 
 * Steps: refresh, press **Tab** repeatedly. Expected: first stop is "Skip to content"; every link/button gets a visible outline. Press **Enter** on "Skip to content": focus jumps to the main content.
 * Note: this is a keyboard check only; it does not prove accessibility compliance.
 
-### A2. Sign In, Create Account and demonstration mode (preview-only)
+### A2. Accounts: Create Account, Sign In, sessions, guest mode, ownership (real)
 
-> **Read this first:** there is **no real authentication**. These tests check that the pages look right, validate input and behave **honestly**. A test *passes* when the page refuses to pretend that anything was sent, created or signed in. Passwords you type are throw-away demonstration strings; never type a password you use anywhere else.
+> **Read this first.** These pages now use the **real** backend. Use fake details only (name `Test Person`, email `test.person@example.com`, password `windows-test-pass-1`). Use the throw-away database from Section 1.6b/4.1 so your real database is untouched. A test passes when the page does what the backend confirms and never claims more than that.
 
 **AU-01 · Open the pages and move between them**
-* Start: `#/`. Steps: 1) Click **Sign in** in the top navigation. 2) Click **Create one**. 3) Click **Sign in** (bottom link). 4) Click **← Back to home**. 5) Type `http://127.0.0.1:5173/#/register` into the address bar, press **F5**. 6) Repeat for `#/login`.
-* Expected **[Run]**: `#/login` shows "Welcome back" and the **Sign in** panel; `#/register` shows "Create your account" and the **Create account** panel; Back to home returns to `#/`; refresh keeps you on the same page; the browser tab title reads "Sign in · GlycoTwin (research prototype)" or "Create account · GlycoTwin (research prototype)".
-* Pass: all links work; no console errors; no horizontal scrollbar. `#/forgot-password` shows the landing page (no such page exists). State effect: None.
+* Start: `#/`. Steps: 1) Click **Sign in** in the top navigation. 2) Click **Create one**. 3) Click **Sign in** (bottom link). 4) Click **← Back to home**. 5) Type `http://127.0.0.1:5173/#/register` into the address bar and press **F5**. 6) Repeat for `#/login`.
+* Expected **[Run]**: `#/login` shows "Welcome back" and the **Sign in** panel; `#/register` shows "Create your account" and the **Create account** panel; Back to home returns to `#/`; refresh keeps you on the same page; the tab title reads "Sign in · GlycoTwin (research prototype)" or "Create account · GlycoTwin (research prototype)". `#/forgot-password` shows the landing page (no such page exists).
+* Pass: all links work; no console errors; no horizontal scrollbar. State effect: None.
 
 **AU-02 · Visual consistency with the landing page**
-* Compare `#/`, `#/login`, `#/register` side by side. Expected: the same dark olive/chocolate background, ivory type, serif headings, coral primary button, organic artwork (lower left on desktop), thin contour lines, translucent bordered form panel. The forms must look like part of the same site, not a generic template. At 1440 × 900 the Sign In panel fits fully on screen; the Create Account panel may need a small scroll. **[Run]**
-* Pass/fail: judge by eye; record a screenshot for anything that looks inconsistent (for example light text on a light background, which would be a bug).
+* Compare `#/`, `#/login`, `#/register`: the same dark olive/chocolate background, ivory type, serif headings, coral primary button, organic artwork, thin contour lines, translucent bordered panel. At 1440 × 900 the Sign In panel fits on screen; the Create Account panel may need a small scroll. **[Run]**
+* Pass/fail: judge by eye; record a screenshot of anything inconsistent (light text on a light background would be a bug).
 
-**AU-03 · Preview notice is visible**
-* On both pages the panel shows a **PREVIEW** pill and the sentence "Accounts are not available yet: this research prototype has no account system, so nothing you type here is sent or stored." before the form. Pass: visible without interaction on both pages.
+**AU-03 · Create an account (success)**
+* Start: `#/register`. Steps: **Full name** `Test Person`; **Email address** `test.person@example.com`; **Password** and **Confirm password** `windows-test-pass-1`; tick the acknowledgement; click **Create account →**.
+* Expected **[Run]**: the button shows "Creating account…" for a moment, then the dashboard opens at `#/app/home`; the sidebar shows **Signed in — Test Person** and a **Log out** button; Settings → **Account** shows your name and email.
+* Pass: you land on the dashboard **and** the name is shown. Fail (serious): the dashboard opens but the name is missing, or you reach the dashboard without the backend having confirmed (check Network: `POST /api/auth/register` must show **201**).
+* State effect: **DB write** (one `users` row with a password hash, one `sessions` row) and a browser cookie. The password is not stored anywhere in plain text.
 
-**AU-04 · Sign In validation**
-* Start: `#/login`. Steps and expected inline red messages (each field gets `aria-invalid` and the message is linked to it):
+**AU-04 · Create Account validation (checked in the browser, nothing is sent)**
+* Click **Create account →** with everything empty. Expected messages **[Run]**: "Enter your name.", "Enter your email address.", "Choose a password.", "Confirm your password.", "Please acknowledge that GlycoTwin is a research prototype." Focus moves to the first invalid field.
+* Then: password `short` (confirm `short`) → "Use at least 10 characters."; a 129-character password → "Use at most 128 characters."; password `windows-test-pass-1` with confirm `different` → "The two passwords do not match."; email `not-an-email` → "Enter a valid email address, such as name@example.com."
+* Pass: each message appears next to its field and the Network tab shows **no** `/auth/register` request while any message is showing. State effect: None.
 
-| Input | Click **Sign in →** | Expected message |
-|---|---|---|
-| both empty | | "Enter your email address." and "Enter your password." |
-| email `not-an-email`, any password | | "Enter a valid email address, such as name@example.com." |
-| valid email, empty password | | "Enter your password." |
+**AU-05 · Duplicate email**
+* Register again with the same email (any case, e.g. `TEST.PERSON@example.com`). Expected **[Run]**: "An account with this email already exists. Try signing in instead." under the email field; you stay on `#/register`; nothing is signed in. (Network: `POST /api/auth/register` → **409**.) State effect: None.
 
-* After a failed attempt keyboard focus moves to the first invalid field. **[Run]** State effect: None; Network tab shows no request.
+**AU-06 · Password rule enforced by the backend**
+* A password that is the same as the email (`test.person@example.com` is long enough) should be refused with a message under the Password field such as "password must not be the same as the email address". **[Code, Unverified in the UI]** Record what you see. The backend also refuses a very repetitive password such as `aaaaaaaaaaaa` ("password is too repetitive"). State effect: None.
 
-**AU-05 · Sign In with valid-looking input (the honesty test)**
-* Steps: email `demo@example.com`, password `not-a-real-password`, click **Sign in →**.
-* Expected **[Run]**: a status message under the form: "Sign-in isn't available yet. This prototype has no account system, so nothing was sent or saved and you are **not** signed in. Use demonstration mode below to explore the workspace."; the password field is **cleared**; the email stays; you remain on `#/login`.
-* **Pass:** that message appears **and** the Network tab (filter Fetch/XHR) shows **no** request **and** the page never says you are signed in, welcome, or shows a user name. **Fail (serious):** any "success", "welcome", redirect to the dashboard as if logged in, a spinner followed by success, or any request carrying the email/password.
-* State effect: None (nothing stored; check Local Storage has no new keys).
+**AU-07 · Sign in (success)**
+* Log out first (AU-12) or open a private window. Start: `#/login`. Email `Test.Person@Example.com` (capitals do not matter) and password `windows-test-pass-1` → **Sign in →**.
+* Expected **[Run]**: "Signing in…", then the dashboard; sidebar shows **Test Person**. Network: `POST /api/auth/login` → **200**. State effect: **DB write** (a new session row; the old sessions are unaffected).
 
-**AU-06 · Password visibility toggle**
-* Steps: type a password; click the eye button (**Show password**). Expected: the text becomes visible, the button name changes to **Hide password** and it is exposed as pressed; click again to hide. On Create Account the confirm field's button is **Show confirm password**. Pass: both directions work and the toggle is reachable with Tab/Enter. **[Run]**
+**AU-08 · Wrong password and unknown email**
+* Wrong password for the real email, then a made-up email with any password. Expected **[Run]** both times: the **same** message "Incorrect email or password." (the page must not say which part was wrong, so nobody can discover which emails have accounts). The password box is cleared; you stay on `#/login`. Network: **401**.
 
-**AU-07 · Create Account validation**
-* Start: `#/register`. Click **Create account →** with everything empty. Expected messages **[Run]**: "Enter your name.", "Enter your email address.", "Choose a password.", "Confirm your password.", "Please acknowledge that GlycoTwin is a research prototype."
-* Then: name `Demo Person`, email `demo@example.com`, password `abc12345`, confirm `different`, tick the checkbox, submit. Expected: "The two passwords do not match." Fix the confirm field and submit.
-* Expected: status "Account creation isn't available yet. … you are **not** registered. …"; passwords cleared; no request sent (Network tab); no "account created" text anywhere.
-* Note: **no password strength rule exists** and none is enforced; the forms only check that fields are filled, the email format, and that the two passwords match. Do not invent a rule when reporting results. State effect: None.
+**AU-09 · Too many wrong attempts (rate limit)**
+* **Use a throw-away account and database only.** Enter a wrong password 5 times for the same email, then a 6th time (even with the right password). Expected **[Run, via the API]**: the backend answers **429** and the page shows "Too many attempts. Please wait about 15 minute(s) and try again." Another email is not affected. The counter is in memory: **stopping and restarting the backend clears it**. This locks that email for 15 minutes, which is why you must not do this to a real account.
 
-**AU-08 · Things that must NOT be there**
-* Confirm there is no "Remember me", no "Forgot password?", no social sign-in, no terms/privacy links, no user name or Log out button anywhere on the landing, auth or dashboard pages. Pass: none present. (A "Forgot password?" link without a real recovery flow would be misleading.)
+**AU-10 · Password visibility toggle**
+* Type a password; click the eye button (**Show password**). The text becomes visible, the button name changes to **Hide password** (pressed state); click again to hide. On Create Account the confirm field's button is **Show confirm password**. Pass: both directions work and the toggle is reachable with Tab/Enter. **[Run]**
 
-**AU-09 · Keyboard and focus on the auth pages**
-* Start: `#/login`, click the page background, press Tab repeatedly. Expected order **[Run]**: Skip to content → GlycoTwin (brand) → ← Back to home → Email address → Password → Show password → Sign in → Continue as demo → Create one. Every stop shows a visible outline. Repeat on `#/register` (also Full name, Confirm password and the checkbox). Press **Enter** inside a field to submit.
-* Note: this is a keyboard spot-check, not an accessibility audit.
+**AU-11 · The session survives a reload**
+* Signed in on any dashboard page, press **F5**. Expected **[Run]**: a brief "Checking your session…" screen, then the **same page** and your name — you do not have to sign in again. (The browser sent the cookie; the app asked `GET /auth/me`.) Network: `GET /api/auth/me` → **200**.
+* Also: close the tab, open `http://127.0.0.1:5173/#/app/home` in a new tab: still signed in (until the session expires, 7 days by default).
 
-**AU-10 · Responsive auth pages**
-* At **1440 × 900, 1280 × 800, 768 × 1024 and 390 × 844**: no horizontal page scrolling; the form panel is fully reachable; the organic art stays decorative (on narrow screens it is faint and behind the text, the small orbs are hidden); inputs are at least comfortably tappable; labels remain readable. **[Run]** (no overflow, no console errors at those four sizes.) State effect: None.
+**AU-12 · Log out**
+* Click **Log out** (sidebar, or Settings → Account). Expected **[Run]**: you land on `#/login`; Network shows `POST /api/auth/logout` → **200**. Then go to `#/app/history`: you are sent back to `#/login`. Pressing the browser Back button does not show your data. State effect: the session is **revoked on the server** (the old cookie value no longer works).
 
-**DM-01 · "Continue as demo" (demonstration mode)**
-* Start: `#/login` (also test on `#/register`). Read the note under the button: "Demonstration mode opens the research workspace **without an account**. Nothing is tied to you, and twins are not private to a user."
-* Steps: click **Continue as demo**.
-* Expected **[Run]**: the address becomes `#/app/home`; the dashboard opens; the sidebar footer shows "Demonstration mode: no account. Twins are not private to a user."; you are **not** shown as a user.
-* Pass: the wording clearly says "demo"/"without an account" and nothing implies authentication. State effect: None until you create a twin.
+**AU-13 · Signed-out visitors cannot open the dashboard**
+* In a private window (or after logging out) open `http://127.0.0.1:5173/#/app/forecast`. Expected **[Run]**: you end on `#/login`; no twin data is shown. Repeat for each `#/app/...` page. A signed-in user who opens `#/login` or `#/register` is sent to `#/app/home`.
 
-**DM-02 · What demonstration mode means (limitations to understand)**
-* It is simply the existing research workspace. There is **no account**, **no login**, **no logout** and **no per-user ownership**: any twin can be opened by anyone who can reach the backend and knows its id; the list of twins is only remembered in this browser (local storage). Twins created here are stored in the backend database (shared by everyone using that backend) and use a **synthetic** demonstration prior. Do **not** enter personal health data.
-* Test: create a twin (TW-01), open the same twin id in a **different browser profile** (TW-06): it opens. This demonstrates the missing ownership; record it as an expected limitation, not a bug in this task.
+**AU-14 · Expired or revoked session**
+* Sign in, open Forecast, fill the form. Now remove the session in **another way**: (a) open a second tab on the same site and **Log out** there, or (b) DevTools → Application/Storage → Cookies → delete `glycotwin_session`. Back in the first tab click **Request forecast**.
+* Expected **[Run, equivalent server-side expiry]**: you are sent to `#/login` and the page says "Your session has ended. Please sign in again." Nothing was saved. State effect: None.
 
-**DM-03 · Existing workflow still works after the redesign**
-* Run the full walkthrough in Section 6 from **Open the application** or **Continue as demo**. Pass: every step behaves as before (forecast, observation, apply, history, insights, explanation, what-if, sensitivity, reconciliation view).
+**AU-15 · Cookie and storage inspection (security check)**
+* DevTools → Application → Cookies: `glycotwin_session` must show **HttpOnly** ✓, **SameSite Lax**, Path `/`; **Secure** is unticked on `http://127.0.0.1` (correct for local use). **[Run]** In the Console type `document.cookie` → it must **not** contain `glycotwin_session` (scripts cannot read it). Local Storage should contain at most `glycotwin.active.<your user id>.v2` (the last-open twin id) — **no password, no token, no glucose values**. Search the Network request payloads: the password appears only in the `register`/`login` request body, once.
+
+**AU-16 · Things that must NOT be there**
+* No "Remember me", no "Forgot password?", no social sign-in, no terms/privacy links, no way to delete your account, no administrator pages. Pass: none present. (A "Forgot password?" link without a real recovery flow would be misleading.)
+
+**AU-17 · Keyboard and focus**
+* On `#/login` press Tab repeatedly. Expected order **[Run]**: Skip to content → GlycoTwin (brand) → ← Back to home → Email address → Password → Show password → Sign in → Continue as demo → Create one; every stop has a visible outline. Repeat on `#/register`. **Enter** inside a field submits. Keyboard spot-check only, not an accessibility audit.
+
+**AU-18 · Responsive auth pages**
+* At **1440 × 900, 1280 × 800, 768 × 1024 and 390 × 844**: no horizontal page scrolling; the panel is fully reachable; the artwork stays decorative (faint on narrow screens); inputs are comfortably tappable. **[Run]** (no overflow at those sizes). State effect: None.
+
+**DM-01 · "Continue as demo" (temporary guest account)**
+* Start: `#/login` or `#/register`. Read the note under the button: "Demo mode creates a **temporary guest account**. Its twins belong only to that guest and are never visible to any other account, but you cannot sign back in to it later. Do not enter personal health data."
+* Click **Continue as demo**. Expected **[Run]**: the dashboard opens; the sidebar shows **Signed in — Guest** with a **GUEST** badge and the note "Guest mode: a temporary account for demonstration…"; Settings → Account shows **Temporary guest account**; Network: `POST /api/auth/guest` → **201**.
+* Pass: it is clearly labelled as a temporary guest account and you can create and use your own twin. State effect: **DB write** (a guest `users` row with no email and no password, plus a session lasting 24 hours by default).
+
+**DM-02 · What guest mode does and does not do**
+* A guest **cannot** sign in again: after **Log out**, or after you clear cookies or the 24 hours pass, that guest account and its twins can no longer be reached by anyone through the website. Registering a real account later does **not** move guest data. Expired guest accounts are not cleaned up (they stay in the database).
+* Known quirk **[Code, Unverified]**: Settings → Account shows a "Create a real account" link, but while you are signed in as a guest, opening `#/register` redirects you to the workspace. To register, click **Log out** first, then **Create account**. Record what you see.
+
+**OW-01 · Two accounts cannot see each other's twins (UI)**
+* Browser window 1: register `Test Person` and create twin `ownership-a1` (Settings). Window 2 (a **private/incognito** window, so it has its own cookies): register `Second Person` (`second.person@example.com`). Settings → **My twins** in window 2 must say "You have no twins yet." and must **not** list `ownership-a1`. Create `ownership-b1` in window 2; window 1's list must not show it.
+* Pass: each account lists only its own twin. **[Run]** (verified with two accounts and a guest). State effect: DB writes (two twins, each with one owner row).
+
+**OW-02 · Probing another account's twin directly (API through the browser)**
+* In window 1 (Test Person) open DevTools → Network → click any request to `/api/twins/<id>/...` and copy the 36-character twin id of `ownership-a1`. In window 2's Console run (replace `<ID>`): `fetch('/api/twins/<ID>/history').then(r => r.json().then(j => console.log(r.status, j.detail)))`.
+* Expected **[Run]**: `404 twin not found` — **identical** to what you get for a made-up id such as `123e4567-e89b-12d3-a456-426614174000`. The website never says "this twin belongs to someone else". Repeat with `/forecasts`, `/reconciliations` and with `POST .../forecast` if you like: always 404.
+
+**OW-03 · Not signed in at all**
+* In a private window with no sign-in, open `http://127.0.0.1:5173/api/twins` (or `http://127.0.0.1:8000/twins`). Expected **[Run]**: `{"detail":"not signed in", ...}` (HTTP 401). The same for `.../api/twins/<ID>` — the answer is 401 whether or not the id is real.
+
+**OW-04 · The twin list is owner-scoped**
+* In window 1 Console: `fetch('/api/twins').then(r => r.json()).then(j => console.log(j.data.twins.map(t => t.label)))`. Expected **[Run]**: only that account's twins (for example `["ownership-a1"]`), never another account's or old unowned twins.
+
+**OW-05 · Labels are globally unique (known limitation)**
+* In window 2 try to create a twin named `ownership-a1`. Expected **[Run, via the API]**: red "a twin with this label already exists" (409). This reveals only that the label is taken — never the id or any data — and is an accepted limitation: labels stay globally unique for now.
+
+**CL-01 · Claiming an old (unowned) twin with `scripts\claim_twin.py`**
+* Why: twins created before accounts existed (and the demo twin from `scripts\init_db.py --demo`) have **no owner and are hidden from everyone**. Use a throw-away database. Stop the backend (Ctrl+C) first so nothing writes while you claim. Project root, same `$env:GLYCOTWIN_DATABASE_URL` as the backend:
+  1. `python scripts\init_db.py --demo` → prints JSON with `"demo_twin_id"` (a **synthetic** twin, label `demo-synthetic-001`).
+  2. `python scripts\claim_twin.py --list-unowned` → lists it (id, label, number of forecasts). The first output line is the database path it is using — check it is your **test** file.
+  3. Register an account in the browser first (needed: the person must already exist). Then dry run: `python scripts\claim_twin.py --twin-id <id> --email test.person@example.com` → ends with "DRY RUN: nothing was changed". Refresh Settings: still hidden.
+  4. Claim: add `--apply` → JSON with `"applied": true`. Start the backend again, sign in, Settings → **My twins** now lists `demo-synthetic-001`; History shows its saved forecasts.
+  5. A second account does **not** see it. Run step 4's command again with another email (and `--apply`): expected `REFUSED: this twin already has an owner; ownership is never transferred or overwritten` and exit code 2 (`$LASTEXITCODE` in PowerShell).
+* Pass: the twin appears only for the claimant, and an owned twin can never be re-claimed. The script only **adds** one `twin_owners` row; it never edits twins, forecasts or history. Never run it on your real database before taking the backup in 1.6b.
+
+**DM-03 · The existing workflow still works**
+* Run the full walkthrough in Section 6 as a registered account and again as a guest. Pass: every step behaves the same (forecast, observation, apply, history, insights, explanation, what-if, sensitivity, reconciliation view).
 
 ### B. Dashboard shell and navigation
 
@@ -358,7 +413,7 @@ Every dashboard page except Settings' static text calls the backend. Mapping to 
 * Steps: open every dashboard page and scroll down.
 * Expected: the disclaimer bar is visible at the top of every page on desktop (sticky); on narrow screens (< 960 px) it stays at the top of the page but scrolls away. **[Code]** Text is identical to the required wording.
 * Pass: present on all 7 pages. Settings additionally shows the disclaimer as a block at the bottom. The landing page footer and both auth pages also show the disclaimer.
-* Also check the sidebar footer (desktop) or the opened Menu (mobile) for the line "Demonstration mode: no account. Twins are not private to a user." (S8).
+* Also check the sidebar footer (desktop) or the opened Menu (mobile): your name under **Signed in**, a **Log out** button, and for a guest account a **GUEST** badge plus the guest-mode note (S8).
 
 **SH-03 · Backend status pill and offline banner**
 * Steps: with the backend running look at the sidebar footer ("Backend": **✓ OK**). Stop the backend, refresh the page.
@@ -376,12 +431,15 @@ Every dashboard page except Settings' static text calls the backend. Mapping to 
 * Steps: in DevTools Elements panel find `data-testid="announcer"`. Create a twin (TW-01). Watch its text.
 * Expected: it contains the success message (for example "Twin “…” created at version 0."). **[Code]** A real screen reader test is outside this guide (Section 5.6).
 
+**SH-07 · Signed-in box and Log out in the sidebar**
+* Expected: **Signed in** with your name; on a phone-width screen it is inside the **Menu**. **Log out** works as in AU-12. The text is readable (an earlier version used a dark grey on the near-black sidebar; confirm it is now light). **[Run]**
+
 ### C. Home dashboard
 
 **HM-01 · Empty state (no twin)**
-* Prerequisite: no active twin. To get here, clear site data for the site in DevTools (Application → Storage → Clear site data) — this only forgets *your browser's list*; twins stay in the database.
+* Prerequisite: a **new account** that has no twins (register a fresh test account, or use a guest). Clearing site data no longer matters for this: your twins are saved in your account, not in the browser.
 * Steps: open `#/app/home`.
-* Expected: heading **Home**; "No twin selected" panel explaining what a twin is; button **Create or open a twin** which goes to Settings. **[Run]**
+* Expected **[Run]**: heading **Home**; "You don't have a twin yet" panel explaining what a twin is, with the button **Create your first twin** which goes to Settings. Only you can see the twins you create.
 * Pass: no errors, no fake numbers. State effect: None.
 
 **HM-02 · Summary cards with a fresh twin**
@@ -403,8 +461,8 @@ Every dashboard page except Settings' static text calls the backend. Mapping to 
 
 **TW-01 · Create a demonstration twin (valid)**
 * Start: `#/app/settings`. Steps: 1) In **Twin label** type `demo-twin-1` (use a unique label each time). 2) Leave **Prior source** = "Synthetic demonstration prior (no real participants)". 3) Leave **Prior scheme** = "Empirical Bayes (default)". 4) Click **Create twin**.
-* Expected **[Run]**: button shows "Creating…" briefly; green notice "Twin “demo-twin-1” created at version 0."; the twin appears under **Twins in this browser** marked **ACTIVE** with a shortened id like `1bf22e03…e561`; sidebar shows it as **Active twin**.
-* Pass: notice + list entry + sidebar. State effect: **DB write** (one twin, version 0) and **Browser only** (local storage keys `glycotwin.twins.v1`, `glycotwin.active.v1`).
+* Expected **[Run]**: button shows "Creating…" briefly; green notice "Twin “demo-twin-1” created at version 0."; the twin appears under **My twins** marked **Open** with a shortened id like `1bf22e03…e561` and `v0`; the sidebar shows it as **Open twin**.
+* Pass: notice + list entry + sidebar. State effect: **DB write** (one twin, version 0, **and one `twin_owners` row linking it to your account**) and **Browser only** (local storage key `glycotwin.active.<your user id>.v2`, which holds just the twin id).
 
 **TW-02 · Label validation (client-side)**
 * Start: Settings → Create a twin. For each input click **Create twin** and read the red text under the field:
@@ -421,7 +479,7 @@ Every dashboard page except Settings' static text calls the backend. Mapping to 
 
 **TW-03 · Duplicate label (409)**
 * Steps: create `demo-twin-1` again with the same label. Expected: red notice "a twin with this label already exists". **[Run]** No second twin is created. State effect: None (rejected).
-* Limitation: if you cleared your browser data, you cannot see the earlier twin in the list; use its id (TW-06) or pick a new label.
+* Note: labels are unique across **all** accounts. If another account (or an old unowned twin) already uses the label you get the same message, even though you cannot see that twin; pick a new label (OW-05).
 
 **TW-04 · Prior options**
 * **Synthetic demonstration prior** is the tested path (TW-01).
@@ -435,24 +493,22 @@ Every dashboard page except Settings' static text calls the backend. Mapping to 
 * Pass: values are numbers (not `NaN`), SDs are positive, and nothing claims data the backend lacks. Compare any value with `GET /twins/{id}` (Section 7).
 * After applying an outcome (OB-05): **n = 1 meals observed**, a new "Version 1" row "from v0", and parameter SDs smaller than before. **[Run]**
 
-**TW-06 · Reopen a twin by id**
-* Prerequisite: a twin id (copy the full id from `GET /twins/{id}` in the Network tab, or from the `demo_twin_id` printed by `python scripts/init_db.py --demo`, which creates a **synthetic** twin labelled `demo-synthetic-001`). Settings → **Open an existing twin** → paste into **Twin id** → **Open twin**.
-* Expected: twin becomes ACTIVE and loads. **Open twin** is disabled while the field is empty. State effect: Browser only.
+**TW-06 · My twins list and switching**
+* Prerequisite: two twins in the same account (create `demo-twin-1` and `demo-twin-2`). Settings → **My twins**: both are listed with their version and short id; the active one shows **Open** (pill) and its button is disabled. Click **Open** on the other twin.
+* Expected **[Run]**: the sidebar "Open twin" name changes and Home/History show the other twin's data. The list comes from the backend (`GET /api/twins`), so it is the same on any browser where you sign in. State effect: Browser only (last-open twin id).
 
-**TW-07 · Invalid twin id**
-* Steps: type `not-a-uuid` → **Open twin**. Expected: a red notice "That is not a valid twin id (expected a UUID)." appears under the **Create a twin** form (it also goes to the hidden announcer). **[Code][Run: announcer text]** Nothing is requested from the backend (Network tab stays quiet).
+**TW-07 · A twin list that cannot load**
+* Stop the backend after signing in, then press F5 on `#/app/settings`. Expected **[Run]**: "Cannot reach the backend" with **Try again** (you are **not** signed out). Start the backend and click **Try again**: the app recovers. If the backend returns an error only for the list, Settings shows "Could not load your twins" with **Try again**. **[Run via automated test]**
 
-**TW-08 · Unknown (but well-formed) twin id → 404**
-* Steps: open `123e4567-e89b-12d3-a456-426614174000`, then go to Home. Expected: red "Twin not found" with "twin not found", and the empty "No twin selected" panel. **[Run]**
-* Follow-up: this unknown id stays your active twin until you pick another one in Settings (**Use**).
+**TW-08 · There is no "open by id" any more**
+* The earlier "Open an existing twin" form and "Forget" button were removed: you can only open **your own** twins from the list. To check an id directly use OW-02. An id that is not yours behaves exactly like an id that does not exist (404 "twin not found").
 
 **TW-09 · Refresh persistence**
-* Steps: with an active twin on Forecast or History, press **F5**. Expected: the same twin reloads automatically and its forecasts reappear (they come from the database); the **selected forecast** resets to the most recent one. **[Code]**
-* Not persisted after refresh: values you typed into forms; the *session-only* observed value of a recorded-but-not-applied outcome (TW-persist note in OB-09).
+* Steps: signed in, with an open twin on Forecast or History, press **F5**. Expected: you stay signed in (AU-11), the same twin reloads and its forecasts reappear (they come from the database); the **selected forecast** resets to the most recent one. **[Code][Run]**
+* Not persisted after refresh: values you typed into forms; the *session-only* observed value of a recorded-but-not-applied outcome (see OB-09).
 
-**TW-10 · Twins in this browser: Use / Forget**
-* Create a second twin `demo-twin-2`. In **Twins in this browser** click **Use** on the first twin; check the sidebar "Active twin" changes. Click **Forget** on the second.
-* Expected: Forget removes it from the *list only*; the twin still exists in the database (reopen it by id to prove it). **[Code]** State effect: Browser only.
+**TW-10 · Everything is still there after logging out and in (persistence of saved history)**
+* Sign out (AU-12), sign in again (AU-07). Expected **[Run]**: **My twins** lists the same twins; History, Insights and Forecast show the same forecasts, observations, versions and parameter chart as before. Restarting the backend in between changes nothing. State effect: None.
 
 ### E. Forecast
 
@@ -624,18 +680,20 @@ Every dashboard page except Settings' static text calls the backend. Mapping to 
 **ST-01 · Backend section**
 * Settings → **Backend**: "API base URL: /api"; **Status** pill OK; **Engine** `0.0.1 · <commit>` (plus "(uncommitted changes)" if the backend's working tree is dirty). **[Run]** If the backend is down: pill "unreachable" and the red "Backend not reachable" notice.
 
-**ST-02 · Local storage inspection**
-* DevTools → Application (Chrome/Edge) or Storage (Firefox) → Local Storage → your site. Expected keys: `glycotwin.twins.v1` (a JSON list of `{id,label,addedAt}`) and `glycotwin.active.v1` (the active twin id). **[Code]** Confirm **no glucose values** are stored there. The list keeps at most 50 twins.
+**ST-02 · Browser storage inspection**
+* DevTools → Application (Chrome/Edge) or Storage (Firefox). **Local Storage** for your site: expected at most the key `glycotwin.active.<your user id>.v2` (a twin id). **Cookies**: `glycotwin_session` (HttpOnly, SameSite Lax). **[Code][Run]** Confirm there is **no password, no session token, no glucose values and no twin list** in Local/Session Storage. (The old keys `glycotwin.twins.v1` and `glycotwin.active.v1` are no longer used; they may linger from older versions and are harmless.)
 
 **ST-03 · Persistence matrix**
 
-| What | After browser refresh | After closing and reopening the browser | After backend restart | If browser data is cleared |
-|---|---|---|---|---|
-| Twins, forecasts, observations, versions | kept (database) | kept | kept | kept (database) |
-| Your list of twins and the active twin | kept (local storage) | kept | kept | **lost** (reopen by id) |
-| Typed form values | lost | lost | lost | lost |
-| Observed value of an unapplied outcome (display) | lost | lost | lost | lost |
-| Chart selection (which forecast) | resets to latest | resets | resets | resets |
+| What | After browser refresh | After closing and reopening the browser | After backend restart | If browser data/cookies are cleared | After Log out |
+|---|---|---|---|---|---|
+| Accounts, twins, forecasts, observations, versions | kept (database) | kept | kept | kept (database) | kept |
+| Your sign-in (session) | kept (cookie) | kept until it expires (7 days; guests 24 h) | kept (sessions are in the database) | **lost** (sign in again; a **guest** cannot) | ended |
+| Your list of twins | loaded from your account | loaded | loaded | loaded after sign-in | after signing in again |
+| Last-open twin | kept (local storage) | kept | kept | resets to your first twin | kept |
+| Typed form values | lost | lost | lost | lost | lost |
+| Observed value of an unapplied outcome (display) | lost | lost | lost | lost | lost |
+| Chart selection (which forecast) | resets to latest | resets | resets | resets | resets |
 
 **[Code]**; verify the rows you care about.
 
@@ -646,10 +704,13 @@ Every dashboard page except Settings' static text calls the backend. Mapping to 
 
 | Situation | Where to trigger | Message source |
 |---|---|---|
-| Network | stop backend | frontend (network error text above) |
-| 404 | unknown twin id (TW-08) | backend "twin not found" |
-| 409 | duplicate label (TW-03), back-dated forecast (FC-07) | backend |
-| 422 | early observation (OB-03), out-of-scale activity (IN-02, WI-02) | backend |
+| Network / backend down | stop backend | frontend ("Cannot reach the GlycoTwin backend…"; on a reload "Cannot reach the backend" + Try again). The dev proxy answers an empty HTTP 500 when nothing listens on port 8000; the app treats that as "cannot reach", not as "signed out" |
+| 401 | session cookie removed or revoked (AU-14); wrong password (AU-08) | backend "not signed in" / "incorrect email or password"; the app returns to Sign In with "Your session has ended…" or shows "Incorrect email or password." |
+| 403 | registration or guest access switched off on the server; a browser POST whose Origin differs | backend ("registration is disabled on this server", "guest access is disabled…", "cross-origin request refused") |
+| 404 | an id that is not yours or does not exist (OW-02) | backend "twin not found" (identical in both cases) |
+| 409 | duplicate email (AU-05), duplicate label (TW-03), back-dated forecast (FC-07) | backend |
+| 422 | early observation (OB-03), out-of-scale activity (IN-02, WI-02), unacceptable password (AU-06) | backend |
+| 429 | too many wrong sign-ins for one email (AU-09) | backend; the page says "Too many attempts. Please wait…" |
 | Client validation | any out-of-range field | frontend text under the field |
 | Unexpected reply shape | not user-triggerable | frontend: "Unexpected response from the backend (…)". Covered by an automated test. |
 | 5xx | not user-triggerable | "The backend failed to process the request; nothing was changed." **[Code]** |
@@ -664,12 +725,12 @@ By default the backend writes to `data/interim/glycotwin_backend.sqlite3`. Testi
 $env:GLYCOTWIN_DATABASE_URL = "sqlite:///C:/Users/<you>/Documents/glycotwin_test.sqlite3"
 python -m uvicorn glycotwin.backend.app:app --host 127.0.0.1 --port 8000
 ```
-The variable name is `GLYCOTWIN_DATABASE_URL` **[Code]**; the `sqlite:///C:/...` form is the standard SQLAlchemy form and was **not** tested on Windows by this guide **[Unverified]**. The variable only lasts for that PowerShell window. To "reset", stop the backend and start it with a **different file name**; do **not** delete files in the repository. Twins in your browser's list that belong to another database will show "Twin not found"; use **Forget** to tidy the list.
+The variable name is `GLYCOTWIN_DATABASE_URL` **[Code]**; the `sqlite:///C:/...` form is the standard SQLAlchemy form and was **not** tested on Windows by this guide **[Unverified]**. The variable only lasts for that PowerShell window. **The account tables are created in the same file**, so a fresh test file also means fresh (empty) accounts: register again after each reset. To "reset", stop the backend and start it with a **different file name**; do **not** delete files in the repository. Twins in your browser's list that belong to another database will show "Twin not found"; use **Forget** to tidy the list.
 
 Never type your own health data. All values below are **made-up demonstration numbers**.
 
 ### 4.2 Repeatable scenarios
-Prerequisite for S1–S8: a **new** twin, e.g. label `demo-twin-<number>`, synthetic demonstration prior, Empirical Bayes. All values are within the schema (carbohydrate 0–500 g, activity 0–25 (demo twin: 0–1), glucose 20–600 mg/dL).
+Prerequisite for S1–S8: **signed in** (register a test account, or use a guest) and a **new** twin, e.g. label `demo-twin-<number>`, synthetic demonstration prior, Empirical Bayes. All values are within the schema (carbohydrate 0–500 g, activity 0–25 (demo twin: 0–1), glucose 20–600 mg/dL).
 
 | ID | Scenario | Data | Expected qualitative behaviour | Illustrative? |
 |---|---|---|---|---|
@@ -680,15 +741,17 @@ Prerequisite for S1–S8: a **new** twin, e.g. label `demo-twin-<number>`, synth
 | S5 | **Boundaries (accepted)** | carbs 0 and 500; glucose 20 and 600; activity 0 and 1; observed 20 and 600; completeness 0 and 1; `observed through` = meal + exactly 120 min | No client error. The backend result for extreme values is **[Unverified]**: record what you see; do not interpret it clinically. | Extreme values are not realistic |
 | S6 | **Boundaries (rejected)** | carbs −1/501; glucose 19/601; activity 1.01; observed 19/601; reason of 2 characters; `observed through` = meal + 119 min | Red message, nothing stored. | – |
 | S7 | **Empty states** | brand-new twin; and cleared browser data | See HM-01, OB-01, HI-01. | – |
-| S8 | **Duplicate label** | create `demo-twin-1` twice | 409 "a twin with this label already exists". | – |
-| S9 | **Unknown ID** | `123e4567-e89b-12d3-a456-426614174000` | "Twin not found". | – |
+| S8 | **Duplicate label** | create `demo-twin-1` twice (or the same label from two accounts) | 409 "a twin with this label already exists". | – |
+| S9 | **Unknown ID / someone else's ID** | `123e4567-e89b-12d3-a456-426614174000`, or another account's twin id (OW-02) | 404 "twin not found" in both cases. | – |
 | S10 | **Incomplete window** | OB-03 | 422 message. | – |
 | S11 | **Backend unavailable** | stop Window 1 | Banner + pill (SH-03, ER-01). | – |
 | S12 | **Back-dated forecast** | FC-07 | 409; rule: next meal ≥ last applied meal + 120 min. | – |
 | S13 | **Excluded meal** | OB-06 | Version unchanged. | – |
-| S14 | **Optional synthetic demo twin** | `python scripts/init_db.py --demo` (from the project root) prints a JSON with `demo_twin_id`; open it in Settings → Open an existing twin | A twin `demo-synthetic-001` created by 8 simulated forecast-observe-apply cycles (so its version is above 0). The script only creates missing tables and skips if the twin exists; it reads **no** CGMacros data. | Fully simulated |
+| S14 | **Optional synthetic demo twin** | `python scripts\init_db.py --demo` (project root, throw-away database) prints a JSON with `demo_twin_id`; it has **no owner and is hidden** until claimed with `scripts\claim_twin.py` (CL-01) | A twin `demo-synthetic-001` created by 8 simulated forecast-observe-apply cycles (so its version is above 0). It reads **no** CGMacros data. | Fully simulated |
+| S15 | **Accounts** | AU-03 to AU-15 | Register, sign in, reload, log out, wrong password, expiry. | fake details only |
+| S16 | **Two accounts and a guest** | OW-01 to OW-05, DM-01 | Each sees only its own twins; other ids give 404. | fake details only |
 
-Do not use any participant identifier as a label (the app rejects labels containing "cgmacros").
+Do not use any participant identifier as a label (the app rejects labels containing "cgmacros"). Do not use a real email address or a password you use elsewhere.
 
 ---
 
@@ -728,31 +791,34 @@ Keyboard and contrast spot checks are **not** an accessibility audit. Screen-rea
 
 ## 6. End-to-end digital twin workflow
 
-Estimated time: 15–20 minutes. Use fresh label `e2e-twin-1`. **S** = state-changing, **R** = read-only.
+Estimated time: 20–25 minutes. Use a fresh test account and the label `e2e-twin-1`. **S** = state-changing, **R** = read-only.
 
 | Step | Do this | Expect | Type |
 |---|---|---|---|
-| 1 | Open `http://127.0.0.1:5173/`, check backend line says `online · database ok`; click **Open the application**. | Home with "No twin selected" (if nothing active). | R |
-| 2 | Settings → label `e2e-twin-1` → **Create twin**. | "Twin “e2e-twin-1” created at version 0." | **S** (DB: twin v0) |
-| 3 | My Twin: note β/γ means and SDs; Version history has only Version 0. | Numbers finite. Write them down. | R |
-| 4 | Forecast: 60 g, activity 0.3, glucose 110, meal `2026-01-01 08:00` → **Request forecast**. | Success; chart; "Limited personal history". | **S** (DB: forecast; twin version stays 0) |
-| 5 | Inspect: chart vs "Numbers behind the chart" vs Network `forecast` response (FC-03); read the data-quality notice and the explanation. | All three agree; interval = baseline + rise interval; window 0–120 min. | R (explanation = R) |
-| 6 | Observations: try **Observed through** `2026-01-01 09:59` with glucose `185`. | Red "outcome window is not complete…". | rejected |
-| 7 | Set **Observed through** `2026-01-01 10:00`, glucose `185`, completeness `1` → **Record outcome**. | "Observation recorded. The twin has not been updated yet." My Twin still version 0. | **S** (DB: observation) |
-| 8 | **Apply**. | "Twin updated: version 0 → 1." with a parameter-change line. | **S** (DB: version 1) |
-| 9 | Forecast again with meal `2026-01-01 09:00` (expect refusal, FC-07), then `2026-01-01 12:00`, glucose 105. | Refusal, then "Forecast stored from twin version 1." Numbers differ from step 4. | rejected / **S** |
-| 10 | My Twin → n = 1 meals observed, versions 0 and 1; History → forecasts table (reconciled + awaiting), parameter chart with v0 and v1, hit rate; Insights → Forecast versus outcome row. | Consistent with steps 4–8. | R |
-| 11 | Forecast page → **Compare scenarios** (WI-01); Insights → **Update** with `0, 0.5, 1` (IN-01). | Tables/charts appear. | R for the twin (what-if stores a run record) |
-| 12 | Before step 11 note Twin version and Meals observed; after step 11 compare. | Unchanged. For an API-level confirmation, `GET /twins/{id}/history` before and after returns identical `versions` (Section 7). | R |
+| 1 | Open `http://127.0.0.1:5173/`, check the backend line says `online · database ok`; click **Open the application**. | You are sent to `#/login` (signed out). | R |
+| 2 | **Create account** (AU-03): `Test Person`, `test.person@example.com`, `windows-test-pass-1`. | Dashboard; your name in the sidebar; Home says "You don't have a twin yet". | **S** (DB: user + session) |
+| 3 | Settings → label `e2e-twin-1` → **Create twin**. | "Twin “e2e-twin-1” created at version 0." and it appears in **My twins**. | **S** (DB: twin v0 + owner row) |
+| 4 | My Twin: note β/γ means and SDs; Version history has only Version 0. | Numbers finite. Write them down. | R |
+| 5 | Forecast: 60 g, activity 0.3, glucose 110, meal `2026-01-01 08:00` → **Request forecast**. | Success; chart; "Limited personal history". | **S** (DB: forecast; twin version stays 0) |
+| 6 | Inspect: chart vs "Numbers behind the chart" vs Network `forecast` response (FC-03); read the data-quality notice and the explanation. | All three agree; interval = baseline + rise interval; window 0–120 min. | R |
+| 7 | Observations: try **Observed through** `2026-01-01 09:59` with glucose `185`. | Red "outcome window is not complete…". | rejected |
+| 8 | Set **Observed through** `2026-01-01 10:00`, glucose `185`, completeness `1` → **Record outcome**. | "Observation recorded. The twin has not been updated yet." My Twin still version 0. | **S** (DB: observation) |
+| 9 | **Apply**. | "Twin updated: version 0 → 1." with a parameter-change line. | **S** (DB: version 1) |
+| 10 | Forecast again with meal `2026-01-01 09:00` (expect refusal, FC-07), then `2026-01-01 12:00`, glucose 105. | Refusal, then "Forecast stored from twin version 1." Numbers differ from step 5. | rejected / **S** |
+| 11 | **Press F5**, then **Log out**, then **Sign in** again (AU-11, AU-12, AU-07). | Still signed in after F5; logout returns to `#/login`; after signing in **My twins** lists `e2e-twin-1`. | **S** (sessions) |
+| 12 | My Twin → n = 1 meals observed, versions 0 and 1; History → forecasts table (reconciled + awaiting), parameter chart with v0 and v1, hit rate; Insights → Forecast versus outcome row (observed rise 75.0 mg/dL). | **Everything saved before logout is back**; consistent with steps 5–9. | R |
+| 13 | Forecast page → **Compare scenarios** (WI-01); Insights → **Update** with `0, 0.5, 1` (IN-01). | Tables/charts appear. | R for the twin (what-if stores a run record) |
+| 14 | Before step 13 note Twin version and Meals observed; after step 13 compare. | Unchanged. For an API-level confirmation, `GET /twins/{id}/history` before and after returns identical `versions` (Section 7). | R |
+| 15 | Open a private window, register a second account, check Settings → My twins (OW-01) and probe the first account's twin id (OW-02). | Empty list; 404 "twin not found". | R |
 
-**State-changing operations (UI):** Create twin, Request forecast, Record outcome, Apply. **Read-only with respect to the twin:** opening any page, Open twin, Use/Forget (browser only), explanations, sensitivity, reconciliation view, what-if (stores a what-if run record only).
+**State-changing operations (UI):** Create account, Sign in, Log out, Continue as demo, Create twin, Request forecast, Record outcome, Apply. **Read-only with respect to the twin:** opening any page, switching twins (browser only), explanations, sensitivity, reconciliation view, what-if (stores a what-if run record only).
 
 ---
 
 ## 7. API integration testing
 
 ### 7.1 Where to look
-* **Interactive docs:** `http://127.0.0.1:8000/docs` → click an endpoint → **Try it out** → **Execute**. Paths here have **no** `/api` prefix.
+* **Interactive docs:** `http://127.0.0.1:8000/docs` → click an endpoint → **Try it out** → **Execute**. Paths here have **no** `/api` prefix. Every twin endpoint needs a session: first run `POST /auth/login` in `/docs` (the browser then keeps the `glycotwin_session` cookie for `127.0.0.1:8000`; it is separate from the cookie of the website on port 5173). Without it you get 401 "not signed in".
 * **Browser Network tab:** requests go to `/api/...` on the frontend port; the proxy strips `/api`.
 * Machine-readable schema: `http://127.0.0.1:8000/openapi.json`.
 * Twin ids are 36-character UUIDs (pattern `^[0-9a-f-]{36}$`); shorter ids give a 422 validation error. **[Run]**
@@ -762,7 +828,13 @@ Estimated time: 15–20 minutes. Use fresh label `e2e-twin-1`. **S** = state-cha
 | Method & backend path | UI path (frontend) | Purpose | Changes twin state? | Success status |
 |---|---|---|---|---|
 | `GET /health` | `/api/health` (landing, shell, Settings) | Liveness, tables, engine version | No | 200 (not wrapped in `data`) **[Run]** |
-| `POST /twins` | Settings → Create twin | Create twin | **Creates** a twin (version 0) | 201 |
+| `POST /auth/register` | Create Account page | Create an account and sign in (sets the cookie) | Creates a user and a session | 201 |
+| `POST /auth/login` | Sign In page | Sign in (sets the cookie) | Creates a session | 200 |
+| `POST /auth/guest` | "Continue as demo" | Temporary guest account (24 h) | Creates a guest user and session | 201 |
+| `POST /auth/logout` | Log out | Revoke this session, clear the cookie | Deletes the session | 200 |
+| `GET /auth/me` | on every page load | Who am I (401 when signed out) | No | 200 |
+| `GET /twins` | Settings → Your twins; Home | List **your own** twins only | No | 200 |
+| `POST /twins` | Settings → Create twin | Create twin (you become its owner) | **Creates** a twin (version 0) and an ownership row | 201 |
 | `GET /twins/{twin_id}` (query `reference_activity` 0–25, optional) | loaded on every twin switch | Twin + state view | No | 200 |
 | `GET /twins/{twin_id}/history` (same query) | loaded with twin | Versions, parameter history, convergence, hit-rate trend, exclusions | No | 200 |
 | `POST /twins/{twin_id}/forecast` | Forecast → Request forecast | Forecast one meal | Stores a forecast; twin **version unchanged** | 201 new; 200 with `created:false` for an identical repeat |
@@ -774,13 +846,16 @@ Estimated time: 15–20 minutes. Use fresh label `e2e-twin-1`. **S** = state-cha
 | `GET /twins/{twin_id}/sensitivity?activities=0,0.5,1` | Insights | Sensitivity vs activity | No | 200 |
 | `GET /twins/{twin_id}/reconciliations` | loaded with twin; Insights | Forecast vs observed list + hit-rate trend + calibration | No | 200 |
 
-There is **no** endpoint that lists twins or participants (tested). **[Code]**
+`GET /twins` lists only the signed-in account's own twins; there is no endpoint that lists other accounts' twins or any participant. **Every** `/twins/{twin_id}…` endpoint answers 401 "not signed in" without a session and an identical 404 "twin not found" when the twin is not yours (or has no owner yet). `/health` and the `/auth/*` routes other than `/auth/me` and `/auth/logout` need no session. **[Code][Run]**
 
 ### 7.3 Request fields and limits
 (Request bodies reject unknown fields with 422 `extra_forbidden`. **[Run]**)
 
 | Endpoint | Fields (type; limits) |
 |---|---|
+| `POST /auth/register` | `name` (1–80 chars), `email` (valid address), `password` (10–128 chars; not equal to the email or name; not a single repeated character). Requires a same-origin `Origin`/`Host` (the proxy provides it). |
+| `POST /auth/login` | `email`, `password`. |
+| `POST /auth/guest`, `/auth/logout` | no body. |
 | `POST /twins` | `label` (string; pattern `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`, must not contain "cgmacros"; **required**); `prior` {`source` `synthetic_demo`\|`prior_file`; `name` (prior_file only, required then); `prior_scheme` `empirical_bayes`\|`blueprint`; `gamma_relative_sd` (blueprint only; one of the allowed widths)}; `glycaemic_group` `healthy`\|`pre-diabetes`\|`t2d` (optional); `reference_activity` (0–25, optional). The UI sends `label` and `prior`. |
 | `POST …/forecast` | `event_id` (same pattern as label, **required**; the UI generates one); `meal_time` (datetime, **required**; the UI sends UTC); `carbs_g` (0–500); `activity_level` (0–25; demo twin 0–1); `baseline_glucose` (20–600 mg/dL); optional `activity_coverage` (0–1), `baseline_age_minutes` (0–1440), `trend_slope_30min` (−20…20), `time_since_last_meal_min` (≥ 0). |
 | `POST …/observe` | `forecast_id` (8–36 chars); `observed_through` (datetime; ≥ meal time + 120 min); **either** `peak_glucose_mg_dl` (20–600) **or** `excluded_reason` (3–200 chars), never both and not neither; optional `window_completeness` (0–1). |
@@ -798,6 +873,14 @@ There is **no** endpoint that lists twins or participants (tested). **[Code]**
 
 | Request | Status | `detail` |
 |---|---|---|
+| Any twin endpoint without a session | 401 | "not signed in" |
+| Twin id that belongs to another account, has no owner, or does not exist | 404 | "twin not found" (identical for all three) |
+| Wrong password or unknown email | 401 | "incorrect email or password" (same text for both) |
+| Register with an email already in use | 409 | "an account with this email already exists" |
+| Register with a weak password | 422 | message naming the password rule |
+| Registration or guest mode switched off (`GLYCOTWIN_ALLOW_REGISTRATION=0` / `GLYCOTWIN_ALLOW_GUEST=0`) | 403 | message saying it is disabled |
+| Auth POST with a foreign `Origin` | 403 | cross-origin request refused |
+| 5 wrong sign-ins for one email within 15 minutes (or too many guest sessions from one address) | 429 | "too many attempts" with a `Retry-After` header |
 | Unknown (well-formed) twin id | 404 | "twin not found" |
 | Malformed twin id (`abc`) | 422 | list; "String should have at least 36 characters" |
 | Duplicate label | 409 | "a twin with this label already exists" |
@@ -815,6 +898,7 @@ There is **no** endpoint that lists twins or participants (tested). **[Code]**
 Every reply body includes the `disclaimer` text. Error bodies from the application have `detail` (string) and `disclaimer`; framework validation errors (422 from FastAPI) have a list in `detail` and may not carry the disclaimer. **[Code]**
 
 ### 7.6 How to test an endpoint through the UI **and** `/docs`
+0. Sign in first (website for step 1; `POST /auth/login` in `/docs` for step 3). Use a test account on a temporary database (1.6b).
 1. Do the action in the UI with the Network tab open (filter `Fetch/XHR`).
 2. Click the request → note the **Status**, copy the **Response** JSON.
 3. Open `/docs` and run the same call with the same values (remember: no `/api`). Compare.
@@ -842,7 +926,7 @@ Run these checks with the data from Section 6. Each is a *yes/no* question.
 | RI-10 | No diagnosis, treatment, diet or insulin-dosing | Read all text, including the explanation sentences and what-if. | None. What-if text says it describes the model and is "not a causal effect on the person"; the backend label says it is "not a diet prescription, treatment recommendation, or insulin dosing suggestion". (Explanation text is generated by the backend; read it for anything that sounds like advice and report it.) |
 | RI-11 | Participant data privacy | Network tab and Local Storage. | No participant-level data; only twin ids/labels in local storage; no requests to third-party domains. |
 | RI-12 | "Hit rate" and "Inside 90%" wording | History and Insights. | Presented as descriptive counts of a few meals, with the sentence that a few meals cannot establish calibration. |
-| RI-13 | Authentication honesty | AU-04…AU-08, DM-01. | Sign In / Create Account never claim success, never send data, and say the prototype has no account system; "demo" mode is labelled as having no account. |
+| RI-13 | Authentication honesty | AU-03…AU-16, DM-01, DM-02, OW-01…OW-05. | Success is shown only after the backend confirms it; failures show the backend's message; "demo" mode is described as a temporary guest account; nothing on the site claims password recovery, email verification, account deletion, or a security audit exists, and nothing calls accounts "secure" beyond what is implemented (hashed passwords, HttpOnly cookie, ownership checks). |
 
 **What passing these checks does not mean:** it means the interface describes the model honestly. It does not mean the forecasts are accurate, that the demo prior reflects real people, that the B/C comparison is settled, or that the tool is safe to use for any health decision. The synthetic demonstration prior is simulated, the real-data validation is not part of this website, and no clinical validation has been done.
 
@@ -864,14 +948,19 @@ Run these checks with the data from Section 6. Each is a *yes/no* question.
 | Red banner "Backend not reachable"; landing says "backend offline" | Backend not running; wrong port; proxy target mismatch | Open `http://127.0.0.1:8000/health`; then `http://127.0.0.1:5173/api/health` | Start the backend; make sure the proxy target equals the backend port; refresh. |
 | `/api/health` returns HTML or 404 on port 5173 | You opened a different app on that port, or the dev server was started from the wrong folder | Look at the Vite terminal | Stop it; `cd frontend`; `npm run dev`. |
 | Browser shows CORS error | You bypassed the proxy (calling `http://127.0.0.1:8000` directly from the page) | Console message; check `VITE_API_BASE_URL` | Keep the default `/api` (the backend has no CORS settings). |
-| **404** "twin not found" | Wrong/unknown id; twin lives in a different database file; backend started with a different `GLYCOTWIN_DATABASE_URL` | `GET /twins/{id}` in `/docs`; check which database you started | Pick the right twin (Settings → **Use**), or **Forget** and create a new one. |
+| **404** "twin not found" | Wrong/unknown id; twin belongs to another account or has no owner (old twins from before accounts are hidden until claimed); backend started with a different `GLYCOTWIN_DATABASE_URL` | `GET /twins` while signed in; check which database you started | Pick a twin from your list (Settings → **Use**), create a new one, or claim an old one with `scripts\claim_twin.py` (CL-01). |
+| **401** "not signed in" / sent back to the sign-in page | Session expired (7 days; guest 24 h), logged out in another tab, cookies blocked, or the backend database was replaced | DevTools → Application → Cookies for `127.0.0.1:5173`; `GET /api/auth/me` in the Network tab | Sign in again. Allow cookies for `127.0.0.1`. Use `127.0.0.1` consistently (cookies for `localhost` are separate). |
+| Sign-in loops back to the sign-in page | Cookies blocked, or the page was opened on a different host name than the one you signed in on | Cookies panel as above | Open `http://127.0.0.1:5173/` and sign in again. |
+| "Too many attempts" (429) on sign-in | 5 wrong passwords for one email in 15 minutes (counter is in backend memory) | Message shows when to retry | Wait, or restart the **test** backend (this resets the counters). Never do that on a backend you rely on. |
+| "Cannot reach the backend" on the sign-in page | Backend not running (the proxy then returns an empty 500) | `http://127.0.0.1:8000/health` | Start the backend; reload. |
+| `Registration is disabled` (403) | `GLYCOTWIN_ALLOW_REGISTRATION=0` in the backend environment | Backend start-up environment | Unset it or set to `1`, restart the backend. |
 | **409** conflict | Duplicate label; back-dated forecast; second observation; reconcile before observe | Read the message | Change the label; set a later meal time (≥ last applied meal + 120 min); see FC-07/OB-07/OB-08. |
 | **422** invalid input | Value out of range; demo twin activity outside 0–1; window not complete | Read the message; compare with Section 7.3 | Correct the value. |
 | "Forecast not available" / chart says "No forecast to draw yet" | No forecast yet; forecast request failed; wrong twin selected | History page; Network tab | Request a forecast; check for a red notice. |
 | "No forecast is waiting for an outcome" | No pending forecast (all observed/reconciled) | History statuses | Request a new forecast. |
 | "Outcome window incomplete" | `Observed through` < meal + 120 min | Read the hint under the field | Use the pre-filled value or later. |
-| History is empty after refresh | No twin active; browser data cleared; wrong database | Settings → Twins in this browser | Re-open the twin by id; confirm the backend database file. |
-| Twin missing after refresh | Local storage cleared/blocked (private window); different browser profile | DevTools → Local Storage | Open by id (TW-06). The twin is still in the database. |
+| History is empty after refresh | No twin active; signed in as a different account; wrong database | Settings → Your twins | Pick the twin from the list; confirm which account and database file you are using. |
+| Twin missing after refresh | Signed in as another account; guest session expired (guest twins are not recoverable by sign-in); wrong database | Settings → Your twins; `GET /api/auth/me` | Sign in with the account that created it. |
 | Chart labels overlap | Very small width; browser zoom; custom fonts | Try 100 % zoom and a wider window; chart scrolls inside its panel on phones | Record a screenshot and viewport size as a visual bug; keep testing. |
 | Page is blank | JavaScript error | Console (F12) | Copy the first red error; hard refresh (Ctrl+Shift+R); restart `npm run dev`. |
 | Console errors "Failed to load resource … 409/404/422" | These are *expected* when you deliberately test error cases | Network tab → the request status | Not a bug unless the page misbehaves. |
@@ -887,15 +976,15 @@ These are **separate from manual tests**. Run them in a terminal. Results below 
 | Check | Command (directory) | What it establishes | What it does **not** establish |
 |---|---|---|---|
 | Frontend typecheck | `npm run typecheck` (`frontend`) | The TypeScript code is type-consistent (strict mode). | Runtime behaviour, layout, API correctness. |
-| Frontend tests | `npm test` (`frontend`) | **17 unit tests across 3 files:** (`core.test.tsx`) disclaimer verbatim; API client envelope/error mapping (404, 409, 422, network, malformed reply); route parsing; number validation; registry helpers; chart empty state; (`landing.test.tsx`) landing has the disclaimer, a Menu control and "inconclusive"; (`auth.test.tsx`) `#/login` and `#/register` route parsing, form validation rules, Sign In and Create Account make **no network call**, never show a signed-in state, have no forgot-password/remember-me, passwords are cleared, the demo link goes to `#/app/home`, the password toggle works. (A "Not implemented: canvas getContext" message from the test environment is harmless noise.) | Visual quality, real browser behaviour, real backend, real authentication (none exists). |
+| Frontend tests | `npm test` (`frontend`) | **37 tests across 4 files** (`core`, `landing`, `auth`, `accounts`): disclaimer verbatim; API client envelope/error mapping (401, 404, 409, 422, 429, network, malformed reply); route parsing and route protection; number validation; per-user active-twin storage; chart empty state; landing content; form validation; against an in-memory fake backend (`fakeBackend.ts`): register/login/guest/logout flows, wrong-password and rate-limit messages, expired-session handling, backend-unreachable state, no password or token in storage, per-account isolation of the remembered twin. (A "Not implemented: canvas getContext" message is stubbed in the test setup.) | Real backend behaviour, real browser cookies, visual quality, accessibility compliance. |
 | Frontend production build | `npm run build` (`frontend`) | Type check + optimised bundle builds. | That the site works against a backend. |
 | Preview of the build | `npm run preview` (`frontend`) then open `http://127.0.0.1:4173/` | The built bundle runs (with the same `/api` proxy). | Same as above. |
 | Full Python tests | `python -m pytest -p no:cacheprovider -q` (project root) | Research engine, data layer, backend routes, lifecycle rules, idempotency, docs conformance, etc. on **synthetic** data. Backend tests use temporary databases (`tmp_path`), so they do not touch your real twin store. A full run takes several minutes. | Real-data validity; clinical validity; the browser UI. |
-| Backend tests only | `python -m pytest -p no:cacheprovider -q tests/test_backend.py` | API behaviour (twins, forecast, observe, reconcile, what-if, explanation, sensitivity, reconciliations, never-modify checks). | Same. |
+| Backend tests only | `python -m pytest -p no:cacheprovider -q tests/test_backend.py tests/test_auth.py tests/test_ownership.py` | API behaviour (twins, forecast, observe, reconcile, what-if, explanation, sensitivity, reconciliations, never-modify checks) plus accounts: hashing, sessions, cookie flags, throttling, origin check, ownership on every twin route, `GET /twins`, upgrade of an existing database, the claim script. | Same; no external security review. |
 | Whitespace check | `git diff --check` (project root) | No whitespace errors in pending changes. | Anything functional. |
 
-* **Python tests, exact command** (project root, environment active): `python -m pytest -p no:cacheprovider -q`. A full run takes roughly 9 minutes on the author's Linux machine. The frontend/auth changes in this guide's revision did not touch backend or shared Python code, so the Python suite was **not** re-run for them; re-run it after any backend change.
-* **Reference results (author's runs on Linux, not yours):** at the commit that introduced the frontend: Python suite **769 passed** (frontend typecheck clean, 11 frontend tests, production build succeeded). After the dark landing/auth changes: typecheck clean, **17 frontend tests passed**, production build succeeded; Python suite **not re-run**. These numbers will change as the project changes.
+* **Python tests, exact command** (project root, environment active): `python -m pytest -p no:cacheprovider -q`. A full run takes roughly 9 minutes on the author's Linux machine. Re-run it after any backend change.
+* **Reference results (author's runs on Linux, cloud container, temporary databases; not yours):** after the accounts/ownership work: Python suite **815 passed**; frontend typecheck clean, **37 tests passed**, production build succeeded; an automated Chromium walk-through of both account flows passed 30/30 checks. **Not tested by the author:** Windows, Edge/Firefox/Safari, real phones, screen readers, any external security review. These numbers will change as the project changes.
 * **Lint:** no Python or frontend lint command is configured in `pyproject.toml` or `frontend/package.json`. **[Code]** Do not invent one.
 * Do **not** point automated tests at your real database; the backend suite already uses temporary ones. Do not run the `scripts/` research runners (e.g. `run_experiment.py`, `check_leakage_on_data.py`) as part of website testing: they read the participant data folders, which this guide never asks you to touch.
 
@@ -930,17 +1019,31 @@ Status values: **Not tested / Pass / Fail / Blocked**. Severity: S1 blocker, S2 
 | Landing | First screen fits (1440 × 900, 1280 × 800) | LP-01b | Not tested | | | |
 | Auth | Open pages / routes `#/login`, `#/register` | AU-01 | Not tested | | | |
 | Auth | Visual consistency | AU-02 | Not tested | | | |
-| Auth | Preview notice | AU-03 | Not tested | | | |
-| Auth | Sign In validation | AU-04 | Not tested | | | |
-| Auth | Sign In honesty (no request, no success) | AU-05 | Not tested | | | |
-| Auth | Password toggle | AU-06 | Not tested | | | |
-| Auth | Create Account validation and honesty | AU-07 | Not tested | | | |
-| Auth | Absent features | AU-08 | Not tested | | | |
-| Auth | Keyboard / focus | AU-09 | Not tested | | | |
-| Auth | Responsive | AU-10 | Not tested | | | |
-| Demo mode | Continue as demo | DM-01 | Not tested | | | |
-| Demo mode | Limitations understood (no ownership) | DM-02 | Not tested | | | |
+| Auth | Create account (success) | AU-03 | Not tested | | | |
+| Auth | Create Account validation | AU-04 | Not tested | | | |
+| Auth | Duplicate email | AU-05 | Not tested | | | |
+| Auth | Backend password rule | AU-06 | Not tested | | | |
+| Auth | Sign in (success) | AU-07 | Not tested | | | |
+| Auth | Wrong password / unknown email | AU-08 | Not tested | | | |
+| Auth | Rate limit | AU-09 | Not tested | | | |
+| Auth | Password toggle | AU-10 | Not tested | | | |
+| Auth | Session survives reload | AU-11 | Not tested | | | |
+| Auth | Log out | AU-12 | Not tested | | | |
+| Auth | Signed-out visitors blocked | AU-13 | Not tested | | | |
+| Auth | Expired / revoked session | AU-14 | Not tested | | | |
+| Auth | Cookie and storage inspection | AU-15 | Not tested | | | |
+| Auth | Things that must not be there | AU-16 | Not tested | | | |
+| Auth | Keyboard / focus | AU-17 | Not tested | | | |
+| Auth | Responsive auth pages | AU-18 | Not tested | | | |
+| Demo mode | Continue as demo (guest account) | DM-01 | Not tested | | | |
+| Demo mode | Guest limits understood | DM-02 | Not tested | | | |
 | Demo mode | Workflow unchanged | DM-03 | Not tested | | | |
+| Ownership | Two accounts cannot see each other's twins | OW-01 | Not tested | | | |
+| Ownership | Probing another account's twin (API) | OW-02 | Not tested | | | |
+| Ownership | Not signed in | OW-03 | Not tested | | | |
+| Ownership | Twin list is owner-scoped | OW-04 | Not tested | | | |
+| Ownership | Labels globally unique (known limitation) | OW-05 | Not tested | | | |
+| Claiming | Claim an old twin with `claim_twin.py` | CL-01 | Not tested | | | |
 | Shell | Sidebar navigation | SH-01 | Not tested | | | |
 | Shell | Persistent disclaimer | SH-02 | Not tested | | | |
 | Shell | Backend pill/banner | SH-03 | Not tested | | | |
@@ -956,11 +1059,11 @@ Status values: **Not tested / Pass / Fail / Blocked**. Severity: S1 blocker, S2 
 | My Twin | Duplicate label | TW-03 | Not tested | | | |
 | My Twin | Prior options | TW-04 | Not tested | | | |
 | My Twin | Page content | TW-05 | Not tested | | | |
-| My Twin | Reopen by id | TW-06 | Not tested | | | |
-| My Twin | Invalid id | TW-07 | Not tested | | | |
-| My Twin | Unknown id (404) | TW-08 | Not tested | | | |
+| My Twin | Twins list and switching | TW-06 | Not tested | | | |
+| My Twin | List that cannot load | TW-07 | Not tested | | | |
+| My Twin | No open-by-id (by design) | TW-08 | Not tested | | | |
 | My Twin | Refresh persistence | TW-09 | Not tested | | | |
-| My Twin | Use / Forget | TW-10 | Not tested | | | |
+| My Twin | Persistence after log out / in | TW-10 | Not tested | | | |
 | Forecast | Valid forecast | FC-01 | Not tested | | | |
 | Forecast | Chart reading | FC-02 | Not tested | | | |
 | Forecast | Chart = table = API | FC-03 | Not tested | | | |
@@ -993,7 +1096,7 @@ Status values: **Not tested / Pass / Fail / Blocked**. Severity: S1 blocker, S2 
 | What-if | Controls & validation | WI-02 | Not tested | | | |
 | What-if | Warnings | WI-03 | Not tested | | | |
 | Settings | Backend section | ST-01 | Not tested | | | |
-| Settings | Local storage | ST-02 | Not tested | | | |
+| Settings | Browser storage inspection | ST-02 | Not tested | | | |
 | Settings | Persistence matrix | ST-03 | Not tested | | | |
 | Errors | Backend unavailable | ER-01 | Not tested | | | |
 | Errors | Error taxonomy | ER-02 | Not tested | | | |
@@ -1006,14 +1109,24 @@ Status values: **Not tested / Pass / Fail / Blocked**. Severity: S1 blocker, S2 
 | Automated | typecheck / tests / build / pytest | Section 10 | Not tested | | | |
 
 ### 11.3 Known limitations (as of this guide)
-* **No real accounts, no authentication, no sessions, no password recovery and no per-user twin ownership.** Sign In and Create Account are visual previews that send nothing; "Continue as demo" simply opens the existing workspace. Twins are reachable by id by anyone with access to the backend, and the backend database is shared. Adding real authentication would need a users table with hashed passwords, secure (httpOnly cookie) sessions, a twin-ownership link and protection on every twin route, which is a separate design decision and was not done.
-* No twin list endpoint, no editing or deleting; the twin list is remembered per browser.
+**Accounts and sessions are implemented** (registration, sign in, sign out, guest mode, HttpOnly session cookie, scrypt password hashing, per-account twin ownership, `GET /twins`). They are a research-prototype implementation and have **not** had an external security review. Known gaps, all deliberate and not hidden by the UI:
+* **No password recovery** ("forgot password") and **no email verification**: an email address is not proven to belong to the person.
+* **No account deletion** and no way to change the password or email.
+* **Guest accounts are never cleaned up**: expired guest sessions stop working, but the guest user and its twins stay in the database.
+* **Login and guest rate limits are in memory**: they reset when the backend restarts and are per backend process.
+* **Twin labels are globally unique**, not per account, so a label can reveal (by a 409 on create) that another account used it.
+* **Not HTTPS by default**: the `Secure` cookie flag is off unless `GLYCOTWIN_COOKIE_SECURE=1`; the backend is meant to stay bound to `127.0.0.1`. Do not expose it to a network as-is.
+* **Databases from before accounts** keep their twins, but those twins have no owner and are hidden until claimed with `scripts\claim_twin.py`. The schema has no migration tool; `create_all` only adds the three new tables.
+* The guest **"Create a real account"** link in Settings opens `#/register`, which redirects a signed-in user to the workspace; log out first.
+
+Other limitations:
+* No twin editing or deleting; the remembered active twin is stored per account in the browser.
 * Observed values of unapplied outcomes are not shown after refresh (OB-09).
 * "Awaiting outcome" on Home can understate pending forecasts (HM-04).
 * Double-clicking **Request forecast** creates two forecasts (FC-08).
 * The backend forecasts only the **maximum** over a 120-minute window; no glucose time course exists.
 * Demonstration twins use a **simulated** 0–1 activity scale, not METs.
-* Not covered by this guide: screen readers, real devices, automated accessibility tools, human design review, any real participant data.
+* Not covered by this guide or the author's runs: Windows, screen readers, real devices, automated accessibility tools, human design review, any real participant data.
 * Several behaviours are marked **[Unverified]**; fill in what you see.
 
 ### 11.4 Readiness summary (complete after testing)
@@ -1021,12 +1134,12 @@ For each row choose **Ready for demo / Ready with known issues / Not ready**, wi
 
 | Area | Criterion for "Ready for demo" | Your conclusion | Justification |
 |---|---|---|---|
-| 1. Basic application functionality | LP, AU, DM, SH, HM, TW, FC, OB, HI, IN, WI, ST cases pass; no S1/S2 bugs open | | |
+| 1. Basic application functionality | LP, AU, DM, OW, SH, HM, TW, FC, OB, HI, IN, WI, ST cases pass; no S1/S2 bugs open | | |
 | 2. Frontend/backend integration | FC-03 passes; Section 6 passes; Section 7 comparisons agree; error cases show the backend's messages | | |
 | 3. Research integrity | All RI-01…RI-13 pass | | |
-| 4. Accessibility and responsive testing | VR and AU-09/AU-10 cases pass at 1440, 1280, 768 and 390 px; focus visible; no horizontal page scroll. **Compliance with accessibility standards is not established** by manual spot checks | | |
+| 4. Accessibility and responsive testing | VR and AU-17/AU-18 cases pass at 1440, 1280, 768 and 390 px; focus visible; no horizontal page scroll. **Compliance with accessibility standards is not established** by manual spot checks | | |
 | 5. Clinical validation | **Not validated. Always "Not clinically validated."** Passing this guide cannot change this. | **Not clinically validated** | The tool is a research prototype with a synthetic demonstration prior and an inconclusive B-vs-C comparison. |
-| 6. Authentication / user accounts | **Not implemented.** The only acceptable result is that the preview pages behave honestly (AU-05, AU-07, AU-08, DM-01) | **Not implemented (preview only)** | No users, sessions or per-user ownership exist; do not describe the product as multi-user or private. |
+| 6. Authentication / user accounts | AU-01…AU-18, DM-01…DM-03, OW-01…OW-05 pass; cookie is HttpOnly; no password/token in browser storage; another account's twin is a 404. **No external security review exists**, so this is never "secure", only "behaves as documented" | | Known gaps: see 11.3 (no recovery, no verification, no deletion, in-memory throttle, guest cleanup, global labels). |
 
 ---
 
@@ -1038,13 +1151,13 @@ These were found by reading the repository and running the app. They are **not**
 2. **Double submit creates duplicate forecasts** (FC-08).
 3. **Unapplied observed value lost on refresh** (OB-09).
 4. **Landing "Documentation" links** point to the GitHub branch tree and need that branch to be reachable (LP-07).
-5. **Root `README.md`** still says "No backend, database or dashboard exists yet" and lists "Product: none". This is out of date (the backend and dashboard exist); `docs/ARCHITECTURE.md`, `docs/BACKEND.md` and `docs/BLUEPRINT_CONFORMANCE.md` describe the current state.
-6. **`requirements.txt`** has a comment saying the React frontend is a "later phase"; the frontend now exists in `frontend/` with its own `package.json`.
+5. **Root `README.md`** was corrected in this revision to describe the backend, dashboard and accounts. Its statements and `docs/PROJECT_STATUS.md` that no experiment result exists still sit beside `docs/model_card.md` and the landing page, which cite 963 meals from 34 participants with an inconclusive B-vs-C result; the project owner should reconcile them.
+6. **`requirements.txt`** has a comment saying the React frontend is a "later phase"; the frontend now exists in `frontend/` with its own `package.json`. (Not a documentation file; left unchanged.)
 7. **Windows database URL form** `sqlite:///C:/...` is the standard SQLAlchemy form but untested here.
 8. **Several UI paths** (Blueprint prior, prior-file twins, exclusion flow, prior-file activity warnings) are implemented and covered by backend tests but were **not** driven through the UI by the author (marked [Unverified]).
-9. **Authentication is preview-only** (see 11.3): the forms collect an email and password but nothing validates them against anything; the sentence on the page says so. This is intentional until a design decision is made.
+9. **Guest "Create a real account" link** (Settings → Account) redirects a signed-in guest to the workspace instead of the registration form; log out first.
 10. **The Create Account panel is taller than a 900 px-high screen**, so it may need a small scroll at 1440 × 900 (Sign In fits).
 11. **Visual reference mockup** is not stored in the repository, so the visual checks in this guide are descriptive, not a comparison against it.
-12. **Scope of the author's own runs:** one Linux machine, Chromium via automation, a temporary database; no Windows, Edge, Firefox or Safari testing; no screen reader; no physical phone.
+12. **Scope of the author's own runs:** one Linux machine, Chromium via automation, temporary databases; no Windows, Edge, Firefox or Safari testing; no screen reader; no physical phone; no external security review.
 
 *End of guide.*

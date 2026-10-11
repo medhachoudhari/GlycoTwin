@@ -15,8 +15,8 @@ cannot be met until real-data results or a human input exist. Synthetic tests ne
 | 1. Repository and engineering | **YELLOW** | Clean-export tests pass in a fresh venv and docs are consistent; but nothing is published (backups are local/ephemeral) and one unexplained test failure is still open. |
 | 2. Data validity | **RED** | No evidence script has been run on the real dataset; the tooling is ready and tested, but it only exists in this session. |
 | 3. Research validity | **RED** | No real run of Models A/B/C or the controls; sample-size minimums unconfirmed; design verified on simulations only. |
-| 4. Innovative features | **YELLOW** | Math, lifecycle and uncertainty verified on synthetic data; replay and persistent history not built; nothing demonstrated on real data. |
-| 5. Product readiness | **RED** | No persistence, API, replay, or dashboard (deliberately not started; they sit behind Gates 2-3). |
+| 4. Innovative features | **YELLOW** | Math, lifecycle and uncertainty verified on synthetic data; persistent history now exists in the SQLite backend (synthetic tests), replay is not built; nothing demonstrated on real data. |
+| 5. Product readiness | **YELLOW** (was RED) | Persistence, a FastAPI API with accounts and per-user ownership, and a React dashboard now exist and pass automated tests on synthetic data (815 Python, 37 frontend); replay, real-data screens, Windows and real-device testing and any security review are not done. |
 
 ### Gate 1: repository and engineering: YELLOW
 
@@ -65,17 +65,19 @@ Blockers: Gate 2; H1 and H8. **Next acceptance criterion for GREEN:** the frozen
 | Activity-conditioned Bayesian personalisation verified | Math: yes. Real data: no | `tests/test_bayesian.py` (17): matches the closed-form and ridge/MAP solutions, sequential = batch, PSD, Monte-Carlo agreement; 16 bugs caught. Model C recovers a simulated interaction. |
 | Forecast, observe, update lifecycle verified | In memory | `tests/test_twin_state.py` (7): version chain, idempotent reconcile, window and consistency guards, order independence. Not connected to the event table (T-06). |
 | Uncertainty calculations verified | Synthetic | Probability equals the Monte-Carlo frequency; 90% interval has 90% coverage; calibrated under correct specification. |
-| Replay and state history verified | **No** | History exists in memory only; **replay not built**; no persistence. |
+| Replay and state history verified | **Partly** | State history is persisted in SQLite (versions with parent links survive restarts and are isolated per account: `tests/test_backend.py`, `tests/test_auth.py`, `tests/test_ownership.py`, synthetic data); **replay is not built**. (Earlier text here said history was in memory only; that is superseded.) |
 | Implemented vs demonstrated on real data | Distinguished | See `docs/INNOVATION_ROADMAP.md` section 4: every row "Demonstrated on real data: No". |
 
 Blockers: demonstration waits on Gates 2-3. **Next acceptance criterion for GREEN:** a real eligible participant's forecast, reconcile and update chain
 is stored with parent links and replayed end to end, with the result reported whatever it is.
 
-### Gate 5: product readiness: RED
+### Gate 5: product readiness: YELLOW (updated 2026-10-11; the earlier RED text said no persistence, API or dashboard existed)
 
-No persistence, API, replay UI or dashboard exists (`git ls-files` shows no FastAPI, SQLAlchemy or frontend files). Reproducibility infrastructure is partly
-in place (manifest, seeds, deterministic scripts, dependency test). I have deliberately **not** built the blocked features to raise a completion figure.
-**Next acceptance criterion for GREEN:** SQLite twin versions survive a restart, every blueprint endpoint returns its specified shape with validated input,
+Now implemented and tested on synthetic data: SQLite persistence (versions survive restarts), the FastAPI API, accounts (register, sign in, sign out, temporary guest), scrypt password hashing, HttpOnly sessions,
+per-user twin ownership with a one-way claim script for old twins, and a React dashboard (landing, sign in / create account, forecast, observations, history, insights, settings).
+Not done: replay, real-data screens, Windows and real-device testing, accessibility audit, password recovery, email verification, account deletion, guest cleanup, persistent rate limits, per-user twin labels, any external security review.
+Reproducibility infrastructure is partly in place (manifest, seeds, deterministic scripts, dependency test). I have deliberately **not** built the blocked features to raise a completion figure.
+**Next acceptance criterion for GREEN (the first part, survival across restarts, is now met):** SQLite twin versions survive a restart, every blueprint endpoint returns its specified shape with validated input,
 a recorded day replays from real eligible data, and every MUST HAVE screen works against the real backend, all with passing tests.
 
 ## 1. Current checkpoint
@@ -332,3 +334,8 @@ Only items that automation cannot do. Batched so you can answer once.
 | When | What | Result |
 |---|---|---|
 | after the backend innovation commit | `frontend/`: React + Vite + TypeScript landing page and dashboard over the real API; only backend-returned values are drawn (no time course is invented; the backend forecasts the maximum glucose in the 120-minute window); verbatim disclaimer on every screen; no dosing or diagnostic feature | `npm run typecheck`, `npm test` (11 passed) and `npm run build` pass; Chromium run at 1440 px and 390 px with no console errors or horizontal overflow; Python suite 769 passed; **not clinically validated, no human design review, no screen-reader or real-device testing**; the B-vs-C result is still reported as inconclusive |
+
+### Verification entry: accounts, ownership and frontend integration (uncommitted at the time of writing)
+| When | What | Result |
+|---|---|---|
+| after the frontend commit `49e9402` | Backend: `users`, `sessions`, `twin_owners` tables added (existing tables unchanged); `/auth/register|login|guest|logout|me`; scrypt hashing; HttpOnly session cookie; ownership check on every twin route (401 / same 404); `GET /twins` (own twins only); `scripts/claim_twin.py` (dry run by default, never transfers). Frontend: real sign-in/registration/guest/logout, protected `#/app/*`, session restore via `/auth/me`, expired-session and outage handling, per-user twin list | Python **815 passed**; frontend typecheck clean, **37 tests passed**, build succeeded; scripted Chromium run against a temporary database 30/30 (two accounts, guest, expiry, outage); fault injection: 7 backend and 5 frontend deliberate breaks all caught. **Linux only: not tested on Windows, other browsers, real phones or with a screen reader; no external security review; not clinically validated** |
