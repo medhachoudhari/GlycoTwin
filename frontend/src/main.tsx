@@ -6,5 +6,7 @@ import "./styles/base.css";
 import "./styles/landing.css";
 import "./styles/chart.css";
 import "./styles/app.css";
+import "./styles/theme.css";
+import "./styles/auth.css";
 
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);

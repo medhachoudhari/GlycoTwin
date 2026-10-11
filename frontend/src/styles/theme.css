@@ -1,0 +1,27 @@
+/* Dark editorial theme used by the landing page and the sign-in / create-account pages (matches the approved concept):
+   near-black olive and chocolate surfaces, warm ivory type, coral actions. Remapping tokens means every existing landing section adapts. */
+.theme-dark {
+  --ivory: #1a170f; --cream: #14120b; --paper: #231f15; --paper-2: #2a2519;
+  --ink: #f4ecd8; --ink-2: #e0d8c2; --ink-3: #bdb69f; --ink-4: #8c8672;
+  --line: rgba(244, 236, 216, 0.2); --line-s: rgba(244, 236, 216, 0.1);
+  --coral-d: #f27a5f;                       /* accent text and focus ring on dark */
+  --role-forecast: #f27a5f; --role-observed: #5fc1ba; --role-ok: #a9c77a; --role-warning: #e6a34a; --role-error: #ff8f7a;
+  --night: #100e08;
+  background: radial-gradient(120% 90% at 78% 8%, rgba(92, 107, 58, 0.22), transparent 60%), radial-gradient(70% 60% at 0% 100%, rgba(112, 66, 38, 0.2), transparent 70%), var(--ivory);
+  color: var(--ink);
+}
+body:has(.theme-dark) { background: #1a170f; }
+.theme-dark .btn { border-color: rgba(244, 236, 216, 0.55); }
+.theme-dark .btn.primary { background: #bd3f27; border-color: #bd3f27; color: #fff6e8; }
+.theme-dark .btn.primary:hover:not(:disabled) { background: #a93620; border-color: #a93620; color: #fff; }
+.theme-dark .l-nav { background: color-mix(in srgb, #1a170f 90%, transparent); }
+.theme-dark .l-nav nav a:not(.btn):hover { border-bottom-color: var(--coral-d); }
+.theme-dark .product-grid, .theme-dark .doc-links { border-top-color: var(--line); }
+.theme-dark .how { border-top: 1px solid var(--line-s); border-bottom: 1px solid var(--line-s); }
+.theme-dark .l-foot { background: var(--cream); }
+.theme-dark .skip { background: var(--ink); color: #1a170f; }
+@media (max-width: 960px) { .theme-dark .l-nav nav { background: #1a170f; } }
+/* --ivory is the dark page colour here, so sections that used it as "light text on dark" must use --ink instead. */
+.theme-dark .how, .theme-dark .on-dark { color: var(--ink); }
+.theme-dark .on-dark .btn { border-color: var(--ink); color: var(--ink); }
+.theme-dark .on-dark .btn:hover:not(:disabled) { background: var(--ink); color: #1a170f; }

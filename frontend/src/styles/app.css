@@ -73,3 +73,4 @@ select.input { appearance: auto; }
 }
 @media (max-width: 560px) { .row2 { grid-template-columns: 1fr; } .disclaimer-bar { flex-direction: column; gap: 2px; } .panel { padding: 14px; } }
 .side :focus-visible, .main-col .disclaimer-bar + * .nothing { outline-color: var(--gold-l); }
+.side .demo-note { color: rgba(244,239,227,.72); border-top: 1px solid var(--line-d); padding-top: 8px; font-size: 12px; }

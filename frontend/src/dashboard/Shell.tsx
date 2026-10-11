@@ -25,6 +25,7 @@ export function Shell({ view, children }: { view: View; children: ReactNode }) {
           <p className="eyebrow">Backend</p>
           {ws.health ? <Pill tone={ws.health.status === "ok" ? "ok" : "warn"}>{ws.health.status}</Pill> : ws.healthError ? <Pill tone="err">Unreachable</Pill> : <Pill tone="muted">Checking</Pill>}
           {ws.twin && <p className="small">Active twin<br /><strong>{ws.twin.label}</strong></p>}
+          <p className="small demo-note">Demonstration mode: no account. Twins are not private to a user.</p>
         </div>
       </aside>
       <div className="main-col">

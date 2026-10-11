@@ -31,16 +31,17 @@ export function Landing({ section }: { section?: string }) {
   }, [section]);
 
   return (
-    <div className="landing">
+    <div className="landing theme-dark">
       <a className="skip" href="#main">Skip to content</a>
       <header className="l-nav">
         <a className="brand" href="#/" aria-label="GlycoTwin home">
-          <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#14170f" /><path d="M5 19c4-9 8 5 11-3s6-6 11-3" fill="none" stroke="#d9a441" strokeWidth="2.4" strokeLinecap="round" /><circle cx="23" cy="13" r="2.2" fill="#e8573d" /></svg>
+          <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#f4ecd8" /><path d="M5 19c4-9 8 5 11-3s6-6 11-3" fill="none" stroke="#c9452d" strokeWidth="2.4" strokeLinecap="round" /></svg>
           <span className="display">GlycoTwin</span>
         </a>
         <button className="menu-btn" aria-expanded={open} aria-controls="l-links" onClick={() => setOpen((o) => !o)}>{open ? "Close" : "Menu"}</button>
         <nav id="l-links" className={open ? "open" : ""} aria-label="Primary">
           {NAV.map(([label, href]) => <a key={href} href={href} onClick={() => setOpen(false)}>{label}</a>)}
+          <a href="#/login" onClick={() => setOpen(false)}>Sign in</a>
           <a className="btn primary sm" href={appHref("home")}>Launch App</a>
         </nav>
       </header>
@@ -49,7 +50,7 @@ export function Landing({ section }: { section?: string }) {
         <section className="hero" aria-labelledby="hero-title">
           <div className="hero-copy">
             <p className="eyebrow">Living intelligence · research prototype</p>
-            <h1 id="hero-title" className="display">Your metabolism has a <em>story.</em> Let’s model&nbsp;it.</h1>
+            <h1 id="hero-title" className="display"><span>Your metabolism</span> <span>has a <em>story.</em></span> <span>Let’s model&nbsp;it.</span></h1>
             <p className="lede">
               GlycoTwin explores personalised post-meal glucose responses. It learns from real continuous-glucose, meal and activity data with Bayesian updating,
               forecasts the next meal with its uncertainty, then checks the forecast against what was observed.
@@ -61,7 +62,7 @@ export function Landing({ section }: { section?: string }) {
             <dl className="meta" aria-label="Project metadata">
               <div><dt>Model family</dt><dd>Bayesian linear · Models B and C</dd></div>
               <div><dt>Engine</dt><dd className="mono">{health.kind === "ok" ? `v${health.h.engine.package_version ?? "dev"} · ${health.h.engine.git_commit?.slice(0, 7) ?? "n/a"}` : health.kind === "loading" ? "checking backend…" : "backend offline"}</dd></div>
-              <div><dt>Backend</dt><dd>{health.kind === "ok" ? (health.h.status === "ok" ? "online · database ok" : "degraded") : health.kind === "loading" ? "checking…" : "not running"}</dd></div>
+              <div><dt>Backend</dt><dd><span className={`dot ${health.kind === "ok" && health.h.status === "ok" ? "on" : health.kind === "loading" ? "wait" : "off"}`} aria-hidden="true" />{health.kind === "ok" ? (health.h.status === "ok" ? "online · database ok" : "degraded") : health.kind === "loading" ? "checking…" : "not running"}</dd></div>
             </dl>
           </div>
           <div className="hero-art" aria-hidden="true">

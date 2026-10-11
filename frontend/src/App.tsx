@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { Landing } from "./pages/Landing";
+import { Auth } from "./pages/Auth";
 import { Shell } from "./dashboard/Shell";
 import { WorkspaceProvider } from "./dashboard/workspace";
 import { ForecastView, HistoryView, HomeView, InsightsView, ObservationsView, SettingsView, TwinView } from "./dashboard/views";
@@ -10,6 +11,7 @@ const VIEW: Record<View, () => ReactElement> = { home: HomeView, twin: TwinView,
 export default function App() {
   const route = useRoute();
   if (route.page === "landing") return <Landing section={route.section} />;
+  if (route.page === "auth") return <Auth mode={route.mode} />;
   const Body = VIEW[route.view];
   return <WorkspaceProvider><Shell view={route.view}><Body /></Shell></WorkspaceProvider>;
 }
