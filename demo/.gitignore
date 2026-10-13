@@ -1,0 +1,2 @@
+# Large binaries stay out of Git by default. See README.md ("Where the video lives") before changing this.
+video/*.mp4

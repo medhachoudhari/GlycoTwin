@@ -1,0 +1,161 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>GlycoTwin demo slides</title>
+<style>
+:root{--bg:#0b1220;--panel:#121c31;--line:#2a3a5c;--tx:#f4f7fb;--mut:#b8c4dc;--teal:#5eead4;--amb:#fbbf24;--cor:#fb7185;--blu:#7dd3fc}
+*{box-sizing:border-box}html,body{margin:0;width:1920px;height:940px;background:var(--bg);color:var(--tx);font-family:"Segoe UI","DejaVu Sans",Arial,sans-serif;overflow:hidden}
+section{display:none;position:absolute;inset:0;padding:56px 110px}section.on{display:block}
+h1{font-size:112px;margin:0;letter-spacing:1px}h2{font-size:58px;margin:0 0 26px;font-weight:700}
+.sub{font-size:48px;color:var(--teal);margin-top:14px}.mut{color:var(--mut)}
+p,li{font-size:34px;line-height:1.38;margin:8px 0}
+.s{opacity:0;transform:translateY(14px);transition:opacity .7s,transform .7s}.s.in{opacity:1;transform:none}
+.card{background:var(--panel);border:2px solid var(--line);border-radius:20px;padding:22px 30px}.card p{margin:6px 0 0}
+.grid{display:grid;gap:22px}.tag{display:inline-block;font:700 25px/1 "DejaVu Sans Mono",monospace;letter-spacing:2px;color:var(--teal);margin-bottom:8px}
+.eq{font:600 40px/1.5 "DejaVu Sans Mono",Consolas,monospace;background:#0e1830;border:2px solid var(--line);border-radius:16px;padding:20px 30px;margin:14px 0}
+.warn{border-color:var(--amb)}.bad{color:var(--cor)}.good{color:var(--teal)}
+table{border-collapse:collapse;font-size:33px;width:100%}th,td{padding:11px 18px;border-bottom:2px solid var(--line);text-align:left}th{color:var(--teal);font-size:27px;letter-spacing:1px}
+.foot{position:absolute;left:110px;right:110px;bottom:24px;font-size:25px;color:var(--mut)}
+.box{border:3px solid var(--blu);border-radius:16px;padding:16px 22px;background:#0f1d38;font-size:27px;line-height:1.3}
+.dash{border-style:dashed;border-color:var(--amb)}
+.arrow{font-size:44px;color:var(--teal);align-self:center;text-align:center}
+.big3{display:grid;grid-template-columns:1fr 80px 1fr 80px 1fr;align-items:stretch;margin-top:46px}
+.big3 .card{min-height:320px}.big3 h3{font-size:54px;margin:4px 0 14px;color:var(--amb)}
+.tl{position:relative;height:250px;margin:20px 0 10px}
+.tl .ln{position:absolute;left:0;right:0;top:140px;height:6px;background:var(--line)}
+.tl .win{position:absolute;left:330px;width:1000px;top:118px;height:50px;background:rgba(94,234,212,.22);border:3px solid var(--teal);border-radius:8px}
+.tl .m{position:absolute;font-size:28px;color:var(--tx)}
+</style></head><body>
+
+<section id="title"><div style="margin-top:140px"><h1>GlycoTwin</h1><div class="sub">Personalized Post-Meal Glucose Digital Twin</div>
+<p class="mut" style="margin-top:34px;font-size:30px">Digital Twin Challenge 2026 · Happiest Health Summit 2026</p></div>
+<div class="card s" data-s="1" style="margin-top:50px"><p style="font-size:38px;margin:0">The same meal can produce very different glucose responses. A forecast that treats everyone as average, and forgets each result, cannot adapt. <b class="good">GlycoTwin keeps a personal, versioned state.</b></p></div></section>
+
+<section id="loop"><h2>The forecast → observe → update loop</h2>
+<div class="big3">
+<div class="card s" data-s="1"><span class="tag">STEP 1</span><h3>FORECAST</h3><p>Probability and 90% interval for the highest glucose in the 2 hours after a meal.</p></div><div class="arrow s" data-s="1">→</div>
+<div class="card s" data-s="1"><span class="tag">STEP 2</span><h3>OBSERVE</h3><p>The maximum glucose actually seen, recorded after the 120-minute window has closed.</p></div><div class="arrow s" data-s="1">→</div>
+<div class="card s" data-s="1"><span class="tag">STEP 3</span><h3>UPDATE</h3><p>If eligible: a new, versioned twin state. Nothing is overwritten.</p></div></div>
+<p class="good s" data-s="1" style="text-align:center;margin-top:40px;font-size:42px;font-weight:700">THE TWIN MAINTAINS STATE ACROSS ELIGIBLE UPDATES ↺</p></section>
+
+<section id="heroes"><h2>Technical contribution</h2>
+<div class="grid" style="grid-template-columns:1fr 1fr">
+<div class="card s" data-s="1"><span class="tag">1 · PERSISTENT, VERSIONED TWIN</span><p>Forecast → observe → update, each eligible outcome a new version.</p></div>
+<div class="card s" data-s="2"><span class="tag">2 · UNCERTAINTY-AWARE</span><p>Distribution of the 2-hour maximum: 90% interval and P(max ≥ 180 mg/dL).</p></div>
+<div class="card s" data-s="3"><span class="tag">3 · BAYESIAN PERSONALIZATION</span><p>Closed-form sequential update of personal carbohydrate sensitivity (Model B).</p></div>
+<div class="card s" data-s="4"><span class="tag">4 · EXPLAIN + COMPARE</span><p>Term-by-term explanations; Models B and C compared with pre-declared rules; leakage-safe evaluation on CGMacros.</p></div></div>
+<div class="card warn s" data-s="5" style="margin-top:26px"><p style="font-size:34px;margin:0"><b>Investigational research prototype.</b> Not a medical device. No advice on diet, medication or insulin.</p></div>
+<div class="foot">The techniques are known; the contribution is their integration in one working, testable system.</div></section>
+
+<section id="arch" style="padding-top:44px"><h2 style="font-size:54px;margin-bottom:20px">Architecture (as implemented)</h2>
+<div style="display:grid;grid-template-columns:480px 90px 560px 90px 480px;align-items:start">
+<div class="box s" data-s="1"><b>Browser</b><br>React 19 · TypeScript · Vite<br><span class="mut">Home · My Twin · Forecast · Observations · History · Insights · Settings</span></div>
+<div class="arrow s" data-s="1">→<br><span style="font-size:22px;color:var(--mut)">/api proxy</span></div>
+<div class="box s" data-s="1"><b>FastAPI backend</b> (127.0.0.1 only)<br>routers: auth · twins<br>strict schemas · session + ownership checks<br>one DB transaction per operation</div>
+<div class="arrow s" data-s="1">→</div>
+<div class="box s" data-s="1" style="font-size:24px"><b style="font-size:27px">SQLite · 11 tables</b><br><span class="mut">users · sessions · twin_owners · twins · twin_states · parameter_snapshots · forecasts · observations · reconciliations · what_if_runs · data_quality_flags</span></div></div>
+<div class="box s" data-s="2" style="margin:20px 0 0 570px;width:560px"><b>Research engine</b> (Python package)<br>Bayesian Models <b>B</b> and <b>C</b> · versioned twin state<br>explanations · what-if · data-quality flags<br><span class="good">same conjugate_update and forecast_exceeds_180 as the research runs</span></div>
+<div class="box dash s" data-s="3" style="margin-top:22px"><b>Offline CGMacros research pipeline</b> (researcher's machine)<br>meal-event table · leakage rules · Model A (population XGBoost) · Models B and C evaluation · aggregate reports and priors.<br><b class="good">Only aggregate priors and reports cross to the website. It never reads participant files.</b></div></section>
+
+<section id="dataset"><h2>CGMacros: the research dataset</h2>
+<div class="s" data-s="1"><table>
+<tr><th>Participants</th><td><b>45</b>, each about 10 days of minute-level rows</td></tr>
+<tr><th>Rows (audit)</th><td><b>687,580</b> in total (5,655 to 18,735 per participant)</td></tr>
+<tr><th>Glucose</th><td>Two CGMs: <b>Libre GL</b> and <b>Dexcom GL</b></td></tr>
+<tr><th>Also in each file</th><td>Activity (METs) · heart rate · logged macronutrients · meal photos</td></tr>
+<tr><th>Our pipeline</th><td>Photos never opened · "Amount Consumed" never a feature · participant files never committed or sent to external services</td></tr>
+<tr><th>Licence</th><td>CC BY-NC-SA 4.0: cited and shared alike</td></tr></table></div>
+<div class="foot">Sources: data/audit/dataset_aggregate_summary.md (aggregate only), docs/data_validity_rules.md</div></section>
+
+<section id="events"><h2>Meal-event definition (decision D9)</h2>
+<div class="tl s" data-s="1"><div class="ln"></div><div class="win"></div>
+<div class="m" style="left:0;top:0;color:var(--amb)">baseline: latest valid reading ≥ 1 sensor interval before t0</div>
+<div class="m" style="left:240px;top:190px;color:var(--amb)"><b>t0</b> = logged <b>Meal Type</b> row</div>
+<div class="m" style="left:560px;top:66px;color:var(--teal)">outcome window (t0, t0 + 120 min]</div>
+<div class="m" style="left:1340px;top:190px;color:var(--teal)">t0 + 120 min</div></div>
+<div class="card s" data-s="1"><p><b>Label = 1</b> if the maximum available glucose in the window is <b>≥ 180 mg/dL</b>. The application forecasts this same target.</p></div>
+<div class="card warn s" data-s="1" style="margin-top:20px"><p style="font-size:30px">The release has <b>no meal-end field</b>: results are stated "after the logged meal-row time", never "after the end of the meal".</p></div>
+<div class="foot">Source: docs/data_validity_rules.md (D1, D3, D9, section B)</div></section>
+
+<section id="elig"><h2>Eligibility and data preparation</h2>
+<div class="s" data-s="1"><ul style="margin:0;padding-left:40px">
+<li><b>Baseline:</b> past-only, lag-guarded so interpolated values cannot leak the future</li>
+<li><b>Missing glucose never imputed:</b> the peak is a lower bound</li>
+<li><b>Meal excluded (reason logged)</b> unless: ≥ 2 valid readings, no gap over 15 min, last reading within 5 min of the window end</li>
+<li><b>Isolated meals only</b> in the primary set (no other meal within 120 min)</li>
+<li><b>Pre-meal activity:</b> mean METs over the 4 hours strictly before the meal, ≥ 50% coverage</li>
+<li>Counts always reconcile: meal rows = kept + excluded</li></ul></div>
+<div class="foot">Source: docs/data_validity_rules.md (D2, D4, D5, D6, D10)</div></section>
+
+<section id="counts"><h2>Verified counts from the researcher's local runs</h2>
+<div class="s" data-s="1"><p class="mut" style="margin:0 0 12px;font-size:30px">An eligible meal: enough readings in its window, no gap over 15 min, glucose never imputed, isolated meals only.</p><table><tr><th>Primary definition</th><th>Libre GL (primary)</th><th>Dexcom GL (sensitivity)</th></tr>
+<tr><td>Meal rows</td><td>1,706</td><td>1,706</td></tr>
+<tr><td>Extraction-valid</td><td>1,697</td><td>1,666</td></tr>
+<tr><td>Core-eligible</td><td>1,262</td><td>1,230</td></tr>
+<tr><td>Positive (max ≥ 180)</td><td>301</td><td>534</td></tr>
+<tr><td>Negative</td><td>961</td><td>696</td></tr></table>
+<div class="card warn" style="margin-top:22px"><p style="font-size:30px;margin:0">The two sensors disagree on the label for <b>23.1%</b> of 1,229 matched events (κ ≈ 0.50). Libre as primary is a <b>convention, not a claim of accuracy</b>.</p></div></div>
+<div class="foot">Source: docs/primary_channel_decision.md. Researcher-run counts, not recomputed for this video.</div></section>
+
+<section id="leak"><h2>Leakage controls</h2>
+<div class="grid s" data-s="1" style="grid-template-columns:1fr 1fr 1fr">
+<div class="card"><span class="tag">FEATURES</span><p>Only information from before the meal. Activity strictly before t0.</p></div>
+<div class="card"><span class="tag">FOLDS</span><p>Participant-level, stratified by A1c group. No participant in both training and test.</p></div>
+<div class="card"><span class="tag">EVALUATION</span><p>Sequential: forecast first; update only after the window has closed.</p></div></div>
+<div class="card s" data-s="1" style="margin-top:26px"><p style="font-size:34px;margin:0">Researcher's leakage check: <b class="good">passed for 45 of 45 participants, on both sensors</b>. An automated mutation test fails if a future value is introduced.</p></div>
+<div class="foot">Sources: docs/PROJECT_STATUS.md (D-15, researcher-run), tests/test_leakage_check.py</div></section>
+
+<section id="math" data-ex="1"><h2>Model B: Bayesian personalization</h2>
+<div class="s" data-s="1"><div class="eq">Model B:  rise = β · carbs + noise        (no intercept)</div>
+<p class="mut" style="margin:8px 0">Prior β ~ Normal(m₀, τ₀²) from training participants only. After each eligible meal (carbs c, observed rise r):</p>
+<div class="eq">1/τ² ← 1/τ² + c² / σ²<br>m ← τ² · ( m/τ² + c·r/σ² )   <span class="mut" style="font-size:30px">(σ² = known noise variance)</span></div>
+<p class="mut" style="margin:8px 0;font-size:30px">Model C adds an activity term: rise = (β + γ · activity) · carbs + noise</p></div>
+<div class="s" data-s="2"><p class="mut">Forecast from the current posterior (baseline b):</p>
+<div class="eq">rise ~ Normal( m·c ,  σ² + c²·τ² )<br>P(peak ≥ 180) = Φ( (b + m·c − 180) / √(σ² + c²·τ²) )</div>
+<div class="card warn" style="margin-top:22px"><p style="font-size:36px;margin:0">Eligible only: window (t0, t0+120 min] closed · unusable windows excluded · back-dated forecasts refused.<br><b>A parameter update, not retraining a model.</b></p></div></div>
+<div class="foot">Source: docs/model_b.md, docs/model_c.md</div></section>
+
+<section id="ev_design"><h2>Key comparison: Model B vs Model C</h2>
+<div class="s" data-s="1"><table><tr><th>Events</th><td><b>963 meals · 34 participants</b> (activity-eligible), Libre channel</td></tr>
+<tr><th>Protocol</th><td>Out-of-fold · participant-level folds (seed 0) · sequential</td></tr>
+<tr><th>Intervals</th><td>Participant-clustered bootstrap, 95%</td></tr>
+<tr><th>Model B</th><td>rise = β · carbs</td></tr><tr><th>Model C</th><td>rise = (β + γ · activity) · carbs</td></tr></table>
+<div class="card warn" style="margin-top:20px"><p style="font-size:30px;margin:0">Numbers come from the researcher's local runs, recorded in docs/model_b_vs_c_report.md. <b>Not recomputed for this video.</b></p></div></div></section>
+
+<section id="ev_table"><h2>Model B vs Model C (paired, C minus B)</h2>
+<div class="s" data-s="1"><table><tr><th>Metric</th><th>Model B</th><th>Model C</th><th>C − B</th><th>95% interval</th></tr>
+<tr><td>ROC-AUC</td><td>0.7943</td><td>0.8059</td><td>+0.0116</td><td>[−0.0084, +0.0479]</td></tr>
+<tr><td>PR-AUC</td><td>0.5792</td><td>0.5890</td><td>+0.0098</td><td>[−0.0109, +0.0356]</td></tr>
+<tr><td>Brier score</td><td>0.1391</td><td>0.1379</td><td>−0.0012</td><td>[−0.0064, +0.0030]</td></tr>
+<tr><td>ECE (10 bins)</td><td>0.0455</td><td>0.0484</td><td>+0.0029</td><td>[−0.0145, +0.0179]</td></tr>
+<tr><td>Rise MAE (mg/dL)</td><td>29.40</td><td>29.51</td><td>+0.11</td><td>[−0.52, +0.68]</td></tr></table>
+<p class="bad" style="font-size:40px;font-weight:700;margin-top:22px">8 of 9 intervals contain zero → INCONCLUSIVE</p></div></section>
+
+<section id="ev_frozen"><h2>Each model vs its own never-updated prior</h2>
+<div class="s" data-s="1"><table><tr><th>Difference (updated − frozen)</th><th>Model B</th><th>Model C</th></tr>
+<tr><td>Brier</td><td>−0.0103 [−0.0229, +0.0019]</td><td>−0.0108 [−0.0235, +0.0011]</td></tr>
+<tr><td>Rise MAE (mg/dL)</td><td>−1.60 [−3.21, +0.08]</td><td>−1.59 [−3.30, +0.17]</td></tr></table>
+<p style="margin-top:14px">Point estimates favour personal updating, but <b class="bad">no interval excludes zero</b>.</p>
+<div class="card warn"><p style="font-size:31px;margin:0"><b>Planned controls:</b> shuffled-history control, running-rate baseline, population XGBoost (Model A). Implemented and tested; <b>real-data run not in this repository: no numbers reported.</b></p></div></div></section>
+
+<section id="ev_meaning"><h2>Three different things</h2>
+<div class="grid s" data-s="1" style="grid-template-columns:1fr 1fr 1fr">
+<div class="card"><span class="tag">RESEARCH ON CGMACROS</span><p>Retrospective, leakage-safe evaluation. Result: <b class="bad">inconclusive</b> for Model C; personalization not established.</p></div>
+<div class="card"><span class="tag">APPLICATION DEMONSTRATION</span><p>The machinery working end to end on values entered by hand. <b>Not research evidence.</b></p></div>
+<div class="card warn"><span class="tag" style="color:var(--amb)">CLINICAL VALIDATION</span><p><b>Not done.</b> No clinical claim is made.</p></div></div></section>
+
+<section id="limits" data-ex="1"><h2>Limitations, safety, next steps</h2>
+<div class="card warn s" data-s="1"><p style="font-size:38px;margin:0"><b>Investigational research prototype.</b> Not a diagnostic tool. Not a validated medical device. <b>Not for insulin dosing or treatment decisions.</b> The evaluation does not establish clinical effectiveness.</p></div>
+<ul class="s" data-s="2"><li>34 participants; the label is a lower bound (maximum available glucose)</li><li>Self-reported macronutrients · wrist-device activity</li><li>Meal-row timestamp = logging time of unknown exact meaning</li><li>One fold assignment · no multiplicity adjustment</li><li>Leakage safeguards reduce risk; independent validation still needed</li></ul>
+<div class="card s" data-s="3" style="background:#0c1a30"><span class="tag">NEXT RESEARCH STEPS</span><p style="margin:0">1. Run the prespecified key experiment on the real dataset with shuffled-history and baseline controls.<br>2. Test whether an activity effect exists but differs by activity level. <span class="mut">(Neither is a result yet.)</span></p></div></section>
+
+<section id="close" style="padding-top:44px"><h1 style="font-size:72px">GlycoTwin</h1><div class="sub" style="font-size:40px;margin-top:6px">Personalized Post-Meal Glucose Digital Twin</div>
+<div class="grid" style="margin-top:26px"><div class="s" data-s="1"><p><span class="tag">WHAT'S NEW</span> A persistent, versioned twin that forecasts with uncertainty, learns from eligible outcomes with a Bayesian update, and explains itself.</p>
+<p><span class="tag">EVIDENCE</span> Leakage-safe retrospective study on CGMacros: Model B vs Model C inconclusive; personalization not yet established.</p></div>
+<div class="card warn s" data-s="2"><p style="font-size:31px;margin:0"><span class="tag" style="color:var(--amb)">LIMITS</span> Investigational research prototype · not a medical device · not advice on diet, medication or insulin · 34 participants · the label is a lower bound · no clinical validation.</p></div>
+<div class="card s" data-s="2"><p style="font-size:31px;margin:0"><span class="tag">NEXT</span> Run the full key experiment on real data · test whether an activity effect depends on activity level.</p></div>
+<div class="s" data-s="2"><p class="good" style="font-size:42px;font-weight:700;margin:6px 0 0">github.com/medhachoudhari/GlycoTwin</p></div></div></section>
+
+<script>
+function show(id,step){document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===id));
+ const sec=document.getElementById(id);
+ sec.querySelectorAll('.s').forEach(e=>{const n=+e.dataset.s; e.classList.toggle('in', sec.dataset.ex? n===step : n<=step); if(sec.dataset.ex) e.style.display=(n===step)?'':'none';});}
+window.show=show;
+</script></body></html>
