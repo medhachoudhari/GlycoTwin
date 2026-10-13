@@ -38,7 +38,7 @@ design brief; referenced throughout `docs/` but **not included in this public re
 | **Demo video (15–20 min)** | *[Unlisted YouTube link — pending; the finished 15:34 video is at `demo/video/GlycoTwin_demo_subtitled.mp4`, not yet uploaded to YouTube]* |
 | **Architecture diagram** | [`docs/submission/GlycoTwin_Architecture.pdf`](docs/submission/GlycoTwin_Architecture.pdf) (editable: [`.pptx`](docs/submission/GlycoTwin_Architecture.pptx)) |
 | **Project presentation** | [`docs/submission/GlycoTwin_Presentation.pdf`](docs/submission/GlycoTwin_Presentation.pdf) (editable: [`.pptx`](docs/submission/GlycoTwin_Presentation.pptx)) |
-| **License** | MIT (code) — see [`LICENSE`](LICENSE); prepared, pending your final confirmation before commit. CGMacros dataset remains under its own CC BY-NC-SA 4.0 terms (see "License" below). |
+| **License** | MIT (code) proposed — not yet committed, pending final confirmation (see "License" below). CGMacros dataset remains under its own CC BY-NC-SA 4.0 terms. |
 
 ### Problem statement
 After the same meal, two people can show very different post-meal glucose responses — age, body
@@ -197,15 +197,17 @@ Details and test cases: `frontend/README.md` and `docs/WEBSITE_TESTING_GUIDE.md`
 - Never send raw participant records or images to an external service.
 
 ## License
-This repository's own code is released under the **MIT License** — see [`LICENSE`](LICENSE). A code license
-is a separate decision from the dataset's license above: the dataset's CC BY-NC-SA 4.0 terms apply to
-CGMacros itself regardless of what license the *code* in this repository carries, and the `LICENSE` file
-covers only the code in this repository — it grants no rights to the CGMacros dataset, which is not
-included here. MIT was chosen because it is short, permissive, and compatible with every dependency this
-project uses (FastAPI, Pydantic, SQLAlchemy, Uvicorn, pandas, NumPy, SciPy, scikit-learn, XGBoost, React,
-Vite, pytest, httpx — all BSD-3, Apache-2.0, or MIT; none are copyleft, so none restrict how this
-repository's own code may be licensed). `LICENSE` is prepared and ready, pending your final confirmation
-before it is committed.
+**No `LICENSE` file is committed to this repository yet.** A code license is a separate decision from the
+dataset's license above: the dataset's CC BY-NC-SA 4.0 terms apply to CGMacros itself regardless of what
+license the *code* in this repository carries, and any future `LICENSE` file would cover only the code in
+this repository — it would grant no rights to the CGMacros dataset, which is not included here.
+
+**Proposed (not yet approved or committed): MIT License** for this repository's own code. MIT was chosen
+because it is short, permissive, and compatible with every dependency this project uses (FastAPI, Pydantic,
+SQLAlchemy, Uvicorn, pandas, NumPy, SciPy, scikit-learn, XGBoost, React, Vite, pytest, httpx — all BSD-3,
+Apache-2.0, or MIT; none are copyleft, so none restrict how this repository's own code may be licensed). The
+MIT text has been drafted and is ready to add on explicit confirmation — it is intentionally **not**
+committed here until that confirmation is given.
 
 ## Demo video
 15:34, English narration, burned-in subtitles, chapter markers; opens on the real landing page and walks
