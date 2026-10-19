@@ -25,6 +25,11 @@ data/processed/*
 *.7z
 *.tar
 *.tar.gz
+*.mp4
+*.webm
+*.mov
+*.mkv
+*.avi
 
 # Local databases (backend): never committed
 *.sqlite

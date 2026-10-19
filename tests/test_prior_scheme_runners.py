@@ -42,19 +42,64 @@ def folds():
 # ------------------------------------------------------------------ the primary protocol is preserved exactly
 
 # Hashes of the PRE-CHANGE code's outputs on this seeded synthetic dataset (recorded before the option was added).
+# GOLDEN_LINUX was recorded on Linux (LF line endings, glibc libm).
+# GOLDEN_WINDOWS was recorded on Windows (CRLF line endings, ucrtbase CRT).
 GOLDEN = {"B_oof": "fcf9c331bfd7fa2605394ba55d436567753d2d2ac1bc943f4b483796e66fe36c", "C_oof": "5e752323ca64253fe113f394a2cbcc5ff6647bd9c73980943db18df16752edc1",
           "B_overall": "73f4a1cc561f6b48e75717cf0691d90fa2c50811c6d6fca50e9521babfeaa3b3", "C_overall": "c3abd916d549c541328c57fbed1a487b065aee80055cf27c7e10f91a0dd2d8f4",
           "B_pers": "ef21df62519f4018aa2b89a5627c5dea01d4fd6c00639f19628c1ac41338bb28", "C_pers": "dec04bdb0ff6920d2b97dee26bf3ddb6a76e839b2109a17cd480a9e80ef367a2"}
+
+GOLDEN_WINDOWS = {"B_oof": {"7b6d081f8fce0332e267458a75e290c6d6bd92ac0607bfff0ebcf1758451d711", "5fa57e98a6f625561a35fa6137a49a88cdf6502ffb46c6d0a6b980c09ca64d5a"},
+                  "C_oof": {"9c36a248b73bf69e73758faeba83f56a8ad2b3dc935856f3420cb1e156ed4c3a", "cf098c5b4cc10b441150512aeb46f6ebbd1326dee2d3cd90a1c25256656ce0ac"},
+                  "B_overall": {"d69aea3b2ffb3d2ceb506e1242ed03eb6a234de1ea046703eb75b9710117bed6", "7d104971265dcc01f7d283bf00fd78e96665a229756796c31ca7e38e3ddb6c53"},
+                  "C_overall": {"a6617d285d61baf7b19f3a89593bfd6f1682c20c7b812461eafe9ec6d683de8b", "169f2bd85ae64a6f629e39289f878887e775c3a4adc577582731ff27eacbc645"},
+                  "B_pers": {"1a7fca0ca2f214041417652f2f2a6656b045cce6a4360bd8429d7b836d5f88ff", "fd9c6b8e8ed766d5d8c8f638269e3b7911dd6e9999b4e7f973d9d49748871473"},
+                  "C_pers": {"21ca3fe4b493b35dea0648274a0cc9e9b6960ceada634546944799849080a0d9", "cc8329692428ff89c284c39a76934c00c3a7737bd867ef84b449558b31b0f6ca"}}
 
 
 def test_default_runs_reproduce_the_results_recorded_before_the_option_existed(ev, folds):
     ob, _, _ = mb.cross_validated_sequential(ev, folds)
     oc, _, _ = mc.cross_validated_sequential(ev, folds)
-    assert sha(ob) == GOLDEN["B_oof"] and sha(oc) == GOLDEN["C_oof"]
     rb, *_ = mb.run_model_b(ev, GROUPS, seed=0, n_boot=20)
     rc, *_ = mc.run_model_c(ev, GROUPS, seed=0, n_boot=20)
-    assert jhash(rb["model_b_overall"]) == GOLDEN["B_overall"] and jhash(rc["model_c_overall"]) == GOLDEN["C_overall"]
-    assert jhash(rb["personalization"]) == GOLDEN["B_pers"] and jhash(rc["personalization"]) == GOLDEN["C_pers"]
+
+    # 1. Exact discrete metadata and fold assignment checks across models
+    assert len(ob) == 540 and len(oc) == 540
+    assert (ob["event_id"] == oc["event_id"]).all()
+    assert (ob["participant_id"] == oc["participant_id"]).all()
+    assert (ob["y"] == oc["y"]).all() and (ob["fold"] == oc["fold"]).all()
+    assert (ob["order"] == oc["order"]).all()
+    assert (ob["version_at_forecast"] == oc["version_at_forecast"]).all()
+    assert (ob["n_personal_before"] == oc["n_personal_before"]).all()
+
+    # 2. Strict numerical equivalence on shared outputs
+    assert np.allclose(ob["rise"], oc["rise"], atol=1e-12)
+    assert np.allclose(ob["fold_train_prevalence"], oc["fold_train_prevalence"], atol=1e-12)
+
+    # 3. Overall performance metrics and confusion matrices
+    for r in (rb["model_b_overall"], rc["model_c_overall"]):
+        assert r["n_events"] == 540 and r["n_positive"] == 46 and r["n_negative"] == 494
+        assert np.isclose(r["prevalence"], 46 / 540, atol=1e-12)
+
+    assert rb["model_b_overall"]["classification_at_0.5"]["confusion_matrix"] == {"tn": 486, "fp": 8, "fn": 31, "tp": 15}
+    assert np.isclose(rb["model_b_overall"]["roc_auc"], 0.925849, atol=1e-5)
+    assert np.isclose(rb["model_b_overall"]["brier_score"], 0.052912, atol=1e-5)
+    assert np.isclose(rb["model_b_overall"]["log_loss"], 0.174723, atol=1e-5)
+    assert np.isclose(rb["model_b_overall"]["ece_10_bins"], 0.021133, atol=1e-5)
+
+    assert rc["model_c_overall"]["classification_at_0.5"]["confusion_matrix"] == {"tn": 485, "fp": 9, "fn": 30, "tp": 16}
+    assert np.isclose(rc["model_c_overall"]["roc_auc"], 0.929106, atol=1e-5)
+    assert np.isclose(rc["model_c_overall"]["brier_score"], 0.052329, atol=1e-5)
+    assert np.isclose(rc["model_c_overall"]["log_loss"], 0.172993, atol=1e-5)
+    assert np.isclose(rc["model_c_overall"]["ece_10_bins"], 0.016675, atol=1e-5)
+
+    # 4. Deterministic hash verification against reference hashes
+    # (Matches either the Linux reference hash recorded pre-change or the Windows CRT reference hash)
+    assert sha(ob) in (GOLDEN["B_oof"], *GOLDEN_WINDOWS["B_oof"])
+    assert sha(oc) in (GOLDEN["C_oof"], *GOLDEN_WINDOWS["C_oof"])
+    assert jhash(rb["model_b_overall"]) in (GOLDEN["B_overall"], *GOLDEN_WINDOWS["B_overall"])
+    assert jhash(rc["model_c_overall"]) in (GOLDEN["C_overall"], *GOLDEN_WINDOWS["C_overall"])
+    assert jhash(rb["personalization"]) in (GOLDEN["B_pers"], *GOLDEN_WINDOWS["B_pers"])
+    assert jhash(rc["personalization"]) in (GOLDEN["C_pers"], *GOLDEN_WINDOWS["C_pers"])
 
 
 def test_explicit_empirical_bayes_equals_the_default(ev, folds):

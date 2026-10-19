@@ -16,8 +16,8 @@ export function fixtureTwin(t: { id: string; label: string; version: number }) {
       meal_state: { open_meal_windows: [], forecasts_awaiting_reconciliation: [], carbs_in_open_outcome_windows_g: 0 },
       personalized_parameters: { carb_sensitivity_model_b: { mean: 0.7, variance: 0.03 }, carb_sensitivity_model_c_at_reference_activity: { mean: 0.6, variance: 0.04, reference_activity: 1 },
         beta_model_c: { mean: 0.8, variance: 0.03, note: "" }, activity_interaction_coefficient: { mean: -0.2, variance: 0.001 }, n_meals_observed: 0 },
-      uncertainty: { posterior_band_width_90: { model_b: 0.6, model_c_at_reference_activity: 0.7, unit: "mg/dL per g" }, calibration_score_rolling: { window: 5, n_reconciled_in_window: 0, model_b: null, model_c: null } },
-      prediction_state: { last_forecast_id: null }, historical_response_state: { version_number: t.version, parent_version_id: null, created_at: "2026-01-01T00:00:00", reconciliation_log_ref: [] }, unavailable: [],
+      uncertainty: { posterior_band_width_90: { model_b: 0.6, model_c_at_reference_activity: 0.7, unit: "mg/dL per g" }, calibration_score_rolling: { window: 5, n_reconciled_in_window: 0, model_b: null as number | null, model_c: null as number | null } },
+      prediction_state: { last_forecast_id: null }, historical_response_state: { version_number: t.version, parent_version_id: null, created_at: "2026-01-01T00:00:00", reconciliation_log_ref: [] }, unavailable: [] as string[],
     },
   };
 }

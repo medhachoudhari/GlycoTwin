@@ -210,3 +210,82 @@ export function SensitivityChart({ data }: { data: Sensitivity }) {
     </figure>
   );
 }
+
+export function PrototypeScopePanel({ twin }: { twin: Twin }) {
+  const cal = twin.state.uncertainty?.calibration_score_rolling;
+  const nReconciled = typeof cal?.n_reconciled_in_window === "number" ? cal.n_reconciled_in_window : null;
+  const hasCalibration = cal?.model_b !== null && cal?.model_b !== undefined;
+  const unavailable = twin.state.unavailable || [];
+
+  return (
+    <section className="panel" aria-labelledby="scope-h">
+      <div className="panel-head">
+        <h3 id="scope-h" className="display">Prototype Scope &amp; Diagnostics</h3>
+        <Pill tone="muted">Research boundary</Pill>
+      </div>
+      <p className="small muted">
+        GlycoTwin operates strictly within the CGMacros research dataset and Bayesian formulation. To prevent misleading claims, features outside the study design or lacking validated models are explicitly excluded rather than simulated.
+      </p>
+
+      <div className="stack" style={{ gap: 14 }}>
+        <article className="scope-group">
+          <h4 style={{ margin: "0 0 6px", fontSize: 15, fontWeight: 600 }}>Outside Current Dataset &amp; Model Scope</h4>
+          <ul className="plain" style={{ gap: 6, fontSize: "13.5px" }}>
+            <li>
+              <strong>Clinical Lab Biomarkers:</strong> Blood lab panels (HbA1c, fasting glucose, fasting insulin, HOMA-IR, lipid panel) and static clinical attributes (BMI, glycaemic group, age, sex) are not linked into real-time twin state to protect participant anonymity and adhere to study boundaries.
+            </li>
+            <li>
+              <strong>Continuous Heart-Rate Telemetry:</strong> Continuous heart-rate monitoring and HR-deviation features are not present in the CGMacros event dataset.
+            </li>
+            <li>
+              <strong>Step Count &amp; Pedometry:</strong> Step counts are not captured in the meal event table. Activity is represented via wrist-worn MET estimations where recorded.
+            </li>
+            <li>
+              <strong>Carbohydrate Absorption Kinetics:</strong> Continuous &ldquo;carbs on board&rdquo; curves require a validated gut pharmacokinetic absorption model. The research engine evaluates post-meal glucose rise directly from meal carb amounts without assuming an arbitrary absorption formula.
+            </li>
+          </ul>
+        </article>
+
+        <article className="scope-group" style={{ borderTop: "1px solid var(--line-s)", paddingTop: 12 }}>
+          <h4 style={{ margin: "0 0 6px", fontSize: 15, fontWeight: 600 }}>Observational Lifecycle &amp; Calibration</h4>
+          <p style={{ margin: "0 0 6px", fontSize: "13.5px" }}>
+            <strong>Rolling Uncertainty Calibration:</strong> Requires a minimum of 3 closed outcome windows with reconciled post-meal observations to compute rolling Brier scores.
+          </p>
+          <div>
+            {hasCalibration ? (
+              <Pill tone="ok">Rolling calibration active (Model B: {fmt(cal?.model_b, 4)}, Model C: {fmt(cal?.model_c, 4)})</Pill>
+            ) : nReconciled !== null ? (
+              <Notice tone="info" title="Awaiting Reconciled Observations">
+                Progress: {nReconciled} of 3 required reconciled meals recorded. Once at least 3 post-meal outcomes have been observed and applied to the twin, rolling calibration scores will display automatically.
+              </Notice>
+            ) : (
+              <Notice tone="info" title="Insufficient Reconciled Forecasts">
+                Rolling calibration will become available once 3 post-meal forecasts have been reconciled with observed glucose outcomes.
+              </Notice>
+            )}
+          </div>
+        </article>
+
+        {unavailable.length > 0 && (
+          <details className="technical-diagnostics" style={{ borderTop: "1px solid var(--line-s)", paddingTop: 10 }}>
+            <summary style={{ cursor: "pointer", fontSize: 13, color: "var(--ink-3)", fontWeight: 500 }}>
+              Technical Blueprint Audit ({unavailable.length} unavailable keys)
+            </summary>
+            <div style={{ marginTop: 8 }}>
+              <p className="small muted" style={{ margin: "0 0 6px" }}>
+                Internal developer verification audit verifying Blueprint Section 4 contract completeness:
+              </p>
+              <ul className="plain" style={{ gap: 4, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--ink-2)" }}>
+                {unavailable.map((item) => (
+                  <li key={item} style={{ background: "var(--paper-2)", padding: "4px 8px", borderRadius: 4 }}>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </details>
+        )}
+      </div>
+    </section>
+  );
+}

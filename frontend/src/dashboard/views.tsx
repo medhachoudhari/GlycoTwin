@@ -9,7 +9,7 @@ import { API_BASE_URL } from "../lib/config";
 import { fmt, pct, shortId, utcLabel } from "../lib/format";
 import { appHref } from "../lib/router";
 import { CreateTwinForm, MealForm, ObservationForm, supportedActivityRange } from "./forms";
-import { ExplanationPanel, ForecastNumbers, ForecastTable, ParamEvolution, ParamTable, QualityNotices, SensitivityChart, Stat, TwinHeader, WhatIfPanel } from "./panels";
+import { ExplanationPanel, ForecastNumbers, ForecastTable, ParamEvolution, ParamTable, PrototypeScopePanel, QualityNotices, SensitivityChart, Stat, TwinHeader, WhatIfPanel } from "./panels";
 import { ResponseChart, type ModelChoice } from "./ResponseChart";
 import { observedPeakFor, useWorkspace } from "./workspace";
 
@@ -97,8 +97,8 @@ export function TwinView() {
       <section className="panel" aria-labelledby="prv-h"><h3 id="prv-h" className="display">Provenance</h3>
         <dl className="kv"><dt>Prior source</dt><dd>{t.prior_source}</dd><dt>Prior scheme</dt><dd>{t.prior_scheme}</dd>
           <dt>Participant-level data in prior</dt><dd>{t.prior_provenance.contains_participant_level_data ? "yes" : "no"}</dd>
-          <dt>Reference activity</dt><dd>{t.config.reference_activity}</dd></dl>
-        {t.state.unavailable.length > 0 && <Notice tone="info" title="Not available from this backend">{t.state.unavailable.join("; ")}</Notice>}</section>
+          <dt>Reference activity</dt><dd>{t.config.reference_activity}</dd></dl></section>
+      <PrototypeScopePanel twin={t} />
     </div>
   );
 }

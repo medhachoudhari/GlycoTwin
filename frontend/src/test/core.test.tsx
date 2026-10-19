@@ -5,6 +5,8 @@ import { checkForecast } from "../api/validate";
 import { Disclaimer } from "../components/ui/Disclaimer";
 import { parseNumber } from "../components/ui/Field";
 import { ResponseChart } from "../dashboard/ResponseChart";
+import { PrototypeScopePanel } from "../dashboard/panels";
+import { fixtureTwin } from "./fakeBackend";
 import { DISCLAIMER } from "../lib/config";
 import { linear, niceTicks } from "../lib/chartMath";
 import { parseHash } from "../lib/router";
@@ -81,3 +83,50 @@ describe("response chart", () => {
     expect(screen.getByText(/No forecast to draw yet/)).toBeInTheDocument();
   });
 });
+
+describe("prototype scope & diagnostics panel", () => {
+  it("clearly separates dataset boundaries, observational progress, and expandable diagnostics", () => {
+    const twin = fixtureTwin({ id: "tw-1", label: "Participant A", version: 1 });
+    twin.state.unavailable = [
+      "static_profile.hba1c",
+      "recent_activity_state.step_count_today (not in the event table)",
+      "meal_state.carbs_on_board (no absorption model specified)",
+      "uncertainty.calibration_score_rolling (too few reconciled forecasts)",
+    ];
+    twin.state.uncertainty.calibration_score_rolling = {
+      window: 5,
+      n_reconciled_in_window: 1,
+      model_b: null,
+      model_c: null,
+    };
+
+    render(<PrototypeScopePanel twin={twin as any} />);
+
+    // Explains study boundaries clearly
+    expect(screen.getByText(/Prototype Scope & Diagnostics/i)).toBeInTheDocument();
+    expect(screen.getByText(/Clinical Lab Biomarkers:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Continuous Heart-Rate Telemetry:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Carbohydrate Absorption Kinetics:/i)).toBeInTheDocument();
+
+    // Explains rolling calibration and shows actual progress count (1 of 3)
+    expect(screen.getByText(/Progress: 1 of 3 required reconciled meals recorded/i)).toBeInTheDocument();
+
+    // Expandable technical audit section with raw keys
+    expect(screen.getByText(/Technical Blueprint Audit \(4 unavailable keys\)/i)).toBeInTheDocument();
+    expect(screen.getByText("static_profile.hba1c")).toBeInTheDocument();
+  });
+
+  it("shows active rolling calibration when sufficient reconciled forecasts exist", () => {
+    const twin = fixtureTwin({ id: "tw-2", label: "Participant B", version: 3 });
+    twin.state.uncertainty.calibration_score_rolling = {
+      window: 5,
+      n_reconciled_in_window: 4,
+      model_b: 0.0529,
+      model_c: 0.0481,
+    };
+
+    render(<PrototypeScopePanel twin={twin as any} />);
+    expect(screen.getByText(/Rolling calibration active/i)).toBeInTheDocument();
+  });
+});
+
