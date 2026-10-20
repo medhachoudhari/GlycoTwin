@@ -40,7 +40,7 @@
 - **Public GitHub Repository:** [https://github.com/medhachoudhari/GlycoTwin](https://github.com/medhachoudhari/GlycoTwin)
 - **Architecture Diagram (Google Slides):** [https://docs.google.com/presentation/d/1pNysqvddI37YxotE6ETBJYXENbabIwvL/edit?usp=sharing](https://docs.google.com/presentation/d/1pNysqvddI37YxotE6ETBJYXENbabIwvL/edit?usp=sharing)
 - **Project Presentation (Google Slides):** [https://docs.google.com/presentation/d/1Q21n31nz-m1pwj7iUR0BUOL6iKSK9YoR/edit?usp=sharing](https://docs.google.com/presentation/d/1Q21n31nz-m1pwj7iUR0BUOL6iKSK9YoR/edit?usp=sharing)
-- **YouTube Demo:** PENDING — URL will be added after upload.
+- **YouTube Demo:** [https://youtu.be/S0gnly0OLSM](https://youtu.be/S0gnly0OLSM)
 - **Submission Deliverables Package:** `docs/submission/` (Architecture diagram & 10-slide presentation available in both PDF and PPTX).
 - **Open-Source License:** [MIT License](LICENSE)
 
@@ -252,7 +252,7 @@ The matched comparison between Model B and Model C showed that 8 of 9 evaluated 
 
 ## J. Demo Video
 
-YouTube Demo: PENDING — URL will be added after upload.
+YouTube Demo: [https://youtu.be/S0gnly0OLSM](https://youtu.be/S0gnly0OLSM)
 
 ---
 
